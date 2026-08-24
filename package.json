@@ -7,6 +7,8 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "mineflayer": "^4.20.1"
+    "mineflayer": "^4.20.1",
+    "mineflayer-pathfinder": "^2.4.6",
+    "vec3": "^0.1.10"
   }
 }
