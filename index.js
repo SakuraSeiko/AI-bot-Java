@@ -93,27 +93,40 @@ function initBot() {
     version: '1.21'
   });
 
-  // Load pathfinder plugin
+  // Load pathfinder immediately
   bot.loadPlugin(pathfinder);
+
+  let defaultMove = null;
+
+  bot.on('login', () => {
+    console.log('[BOT] Successfully logged in to the server.');
+  });
+
+  bot.on('spawn', () => {
+    console.log('[BOT] Alice spawned in the world.');
+    defaultMove = new movements(bot);
+    bot.pathfinder.setMovements(defaultMove);
+  });
 
   // 2. Map actions to Mineflayer executions
   const botActions = {
     async walkTo({ x, y, z }) {
-      const defaultMove = new movements(bot);
+      if (!defaultMove) return "Bot not fully spawned yet.";
       bot.pathfinder.setMovements(defaultMove);
       bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
       return `Started walking to X:${x} Y:${y} Z:${z}.`;
     },
 
     async followPlayer({ targetUsername }) {
+      if (!defaultMove) return "Bot not fully spawned yet.";
       const playerEntity = Object.keys(bot.players)
-        .find(name => name.includes(targetUsername)) ? bot.players[targetUsername]?.entity : null;
+        .find(name => name.toLowerCase().includes(targetUsername.toLowerCase())) 
+        ? bot.players[targetUsername]?.entity : null;
 
       if (!playerEntity) {
-        return `Player ${targetUsername} is not in reach or visible.`;
+        return `Player ${targetUsername} is not visible.`;
       }
 
-      const defaultMove = new movements(bot);
       bot.pathfinder.setMovements(defaultMove);
       bot.pathfinder.setGoal(new goals.GoalFollow(playerEntity, 2), true);
       return `Following player ${targetUsername}.`;
@@ -140,16 +153,6 @@ function initBot() {
       return `Sent to chat: ${message}`;
     }
   };
-
-  bot.on('login', () => {
-    console.log('[BOT] Successfully logged in to the server.');
-  });
-
-  bot.on('spawn', () => {
-    console.log('[BOT] Alice spawned in the world.');
-    const defaultMove = new movements(bot);
-    bot.pathfinder.setMovements(defaultMove);
-  });
 
   // 3. Handle incoming chat and query Gemini
   bot.on('chat', async (username, message) => {
