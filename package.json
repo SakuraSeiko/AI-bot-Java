@@ -1,0 +1,12 @@
+{
+  "name": "ai-gemini-minecraft-java",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "mineflayer": "^4.20.1"
+  }
+}
