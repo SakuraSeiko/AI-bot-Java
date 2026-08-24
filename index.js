@@ -1,7 +1,13 @@
 const http = require('http');
+const dns = require('dns');
 const mineflayer = require('mineflayer');
 const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// Force IPv4 lookup resolution on Render environments
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 const PORT = process.env.PORT || 3000;
 
@@ -22,7 +28,6 @@ function initBot() {
     return;
   }
 
-  // 1. Tool declarations for Gemini Function Calling
   const tools = [
     {
       functionDeclarations: [
@@ -90,12 +95,16 @@ function initBot() {
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
     username: 'Alice',
-    version: '1.21'
+    version: '1.21',
+    checkTimeoutInterval: 30 * 1000
   });
 
-  // Load pathfinder immediately
-  bot.loadPlugin(pathfinder);
+  // Track TCP socket state
+  bot._client.on('connect', () => {
+    console.log('[NET] Low-level TCP connection established! Handshaking with Minecraft server...');
+  });
 
+  bot.loadPlugin(pathfinder);
   let defaultMove = null;
 
   bot.on('login', () => {
@@ -108,7 +117,6 @@ function initBot() {
     bot.pathfinder.setMovements(defaultMove);
   });
 
-  // 2. Map actions to Mineflayer executions
   const botActions = {
     async walkTo({ x, y, z }) {
       if (!defaultMove) return "Bot not fully spawned yet.";
@@ -154,7 +162,6 @@ function initBot() {
     }
   };
 
-  // 3. Handle incoming chat and query Gemini
   bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
 
@@ -191,6 +198,10 @@ Analyze the input. If it requires physical actions (walking, mining, speaking), 
     } catch (err) {
       console.error('[GEMINI ERROR]', err.message || err);
     }
+  });
+
+  bot.on('kicked', (reason) => {
+    console.log('[BOT KICKED]', reason);
   });
 
   bot.on('error', (err) => {
