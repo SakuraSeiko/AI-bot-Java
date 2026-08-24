@@ -1,6 +1,6 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
-const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -41,7 +41,7 @@ function initBot() {
     // Ładowanie nawigacji dopiero PO wejściu bota do gry
     try {
       bot.loadPlugin(pathfinder);
-      const defaultMove = new movements(bot);
+      const defaultMove = new Movements(bot);
       bot.pathfinder.setMovements(defaultMove);
     } catch (e) {
       console.log('[PATHFINDER SETUP]', e.message);
