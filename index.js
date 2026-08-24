@@ -1,6 +1,7 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
+const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
 
@@ -12,6 +13,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[SYSTEM] Web server listening on port ${PORT}`);
+  initGemini();
   initBot();
 });
 
@@ -21,12 +23,8 @@ function initBot() {
     return;
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
   console.log('[BOT] Connecting to EsnaSeiko.aternos.me:51316...');
 
-  // Auto-version detection enabled by omitting 'version' parameter
   const bot = mineflayer.createBot({
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
@@ -40,25 +38,66 @@ function initBot() {
 
   bot.on('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
+    // Ładowanie nawigacji dopiero PO wejściu bota do gry
+    try {
+      bot.loadPlugin(pathfinder);
+      const defaultMove = new movements(bot);
+      bot.pathfinder.setMovements(defaultMove);
+    } catch (e) {
+      console.log('[PATHFINDER SETUP]', e.message);
+    }
   });
 
-  bot.on('chat', (username, message) => {
+  // Definicje akcji bota
+  const botActions = {
+    async walkTo({ x, y, z }) {
+      bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
+      return `Walking to X:${x} Y:${y} Z:${z}`;
+    },
+
+    async followPlayer({ targetUsername }) {
+      const player = bot.players[targetUsername]?.entity;
+      if (!player) return `Player ${targetUsername} not visible.`;
+      bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true);
+      return `Following ${targetUsername}`;
+    },
+
+    async digBlock({ x, y, z }) {
+      const targetBlock = bot.blockAt(bot.vec3(x, y, z));
+      if (!targetBlock || targetBlock.name === 'air') return "No block there.";
+      try {
+        await bot.dig(targetBlock);
+        return `Mined ${targetBlock.name}`;
+      } catch (err) {
+        return `Mining error: ${err.message}`;
+      }
+    },
+
+    async chatMessage({ message }) {
+      bot.chat(message);
+      return `Sent message: ${message}`;
+    }
+  };
+
+  bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
 
     console.log(`[CHAT] ${username}: ${message}`);
+    const botPos = bot.entity ? bot.entity.position : { x: 0, y: 0, z: 0 };
 
-    const prompt = `You are playing Minecraft as an AI companion named Alice. Player ${username} said: "${message}". Respond concisely in 1 short sentence.`;
+    const aiResult = await analyzeMessage(username, message, botPos);
+    if (!aiResult) return;
 
-    model.generateContent(prompt)
-      .then((result) => {
-        const reply = result.response.text();
-        if (reply) {
-          bot.chat(reply.trim());
-        }
-      })
-      .catch((err) => {
-        console.error('[GEMINI ERROR]', err.message || err);
-      });
+    if (aiResult.type === 'function') {
+      const { name, args } = aiResult.action;
+      console.log(`[AI ACTION] ${name}`, args);
+      if (botActions[name]) {
+        const res = await botActions[name](args);
+        console.log(`[ACTION RESULT] ${res}`);
+      }
+    } else if (aiResult.type === 'text' && aiResult.text) {
+      bot.chat(aiResult.text.trim());
+    }
   });
 
   bot.on('error', (err) => {
