@@ -79,14 +79,33 @@ function initBot() {
     }
   };
 
-  // Helper function to process incoming AI messages
-  async function handleUserMessage(username, text) {
-    if (username === bot.username) return;
+  // Universal message listener for MC 1.21 packet compatibility
+  bot.on('message', async (jsonMsg, position) => {
+    if (position === 'game_info') return;
 
-    console.log(`[PROCESSING CHAT] ${username}: ${text}`);
+    const fullText = jsonMsg.toString();
+    if (!fullText.trim()) return;
+
+    console.log(`[RAW CHAT RECEIVED] ${fullText}`);
+
+    // Updated regex allowing dots, dashes, and standard characters in usernames
+    const match = fullText.match(/^(?:<|\[)?([.\w-]+)(?:>|\])?[:\s]\s*(.+)$/);
+    
+    let username = null;
+    let messageText = fullText;
+
+    if (match) {
+      username = match[1];
+      messageText = match[2];
+    }
+
+    // Ignore self messages
+    if (username === bot.username || fullText.includes(bot.username)) return;
+
     const botPos = bot.entity ? bot.entity.position : { x: 0, y: 0, z: 0 };
+    const sender = username || 'Player';
 
-    const aiResult = await analyzeMessage(username, text, botPos);
+    const aiResult = await analyzeMessage(sender, messageText, botPos);
     if (!aiResult) return;
 
     if (aiResult.type === 'function') {
@@ -98,26 +117,6 @@ function initBot() {
       }
     } else if (aiResult.type === 'text' && aiResult.text) {
       bot.chat(aiResult.text.trim());
-    }
-  }
-
-  // Standard chat event
-  bot.on('chat', (username, message) => {
-    handleUserMessage(username, message);
-  });
-
-  // Raw chat event fallback (for custom server chat formats)
-  bot.on('messagestr', (message, messagePosition) => {
-    if (!message || messagePosition === 'game_info') return;
-
-    // Match patterns like "<Player> message" or "Player: message"
-    const match = message.match(/^(?:<|\[)?([a-zA-Z0-9_]+)(?:>|\])?[:\s]\s*(.+)$/);
-    if (match) {
-      const username = match[1];
-      const text = match[2];
-      if (username !== bot.username) {
-        handleUserMessage(username, text);
-      }
     }
   });
 
