@@ -30,7 +30,8 @@ function initBot() {
   const bot = mineflayer.createBot({
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
-    username: 'Alice'
+    username: 'Alice',
+    version: '1.20.4'
   });
 
   bot.on('login', () => {
