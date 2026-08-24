@@ -1,17 +1,11 @@
 const http = require('http');
-const dns = require('dns');
 const mineflayer = require('mineflayer');
 const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Force IPv4 lookup resolution on Render environments
-if (dns.setDefaultResultOrder) {
-  dns.setDefaultResultOrder('ipv4first');
-}
-
 const PORT = process.env.PORT || 3000;
 
-// HTTP server required for Render uptime checks
+// HTTP server for Render uptime checks
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Alice AI Bot Service is active.\n');
@@ -19,89 +13,87 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[SYSTEM] Web server listening on port ${PORT}`);
-  initBot();
+  if (process.env.GEMINI_API_KEY) {
+    initBot();
+  } else {
+    console.error('[ERROR] GEMINI_API_KEY environment variable is missing!');
+  }
 });
 
-function initBot() {
-  if (!process.env.GEMINI_API_KEY) {
-    console.error('[ERROR] GEMINI_API_KEY environment variable is missing!');
-    return;
-  }
-
-  const tools = [
-    {
-      functionDeclarations: [
-        {
-          name: "walkTo",
-          description: "Walk to specific X, Y, Z coordinates in the world.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              x: { type: "NUMBER", description: "X coordinate" },
-              y: { type: "NUMBER", description: "Y coordinate" },
-              z: { type: "NUMBER", description: "Z coordinate" }
-            },
-            required: ["x", "y", "z"]
-          }
-        },
-        {
-          name: "followPlayer",
-          description: "Walk directly to a specific player.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              targetUsername: { type: "STRING", description: "Username of the target player." }
-            },
-            required: ["targetUsername"]
-          }
-        },
-        {
-          name: "digBlock",
-          description: "Mine/dig the block located at the given X, Y, Z coordinates.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              x: { type: "NUMBER", description: "Block X coordinate" },
-              y: { type: "NUMBER", description: "Block Y coordinate" },
-              z: { type: "NUMBER", description: "Block Z coordinate" }
-            },
-            required: ["x", "y", "z"]
-          }
-        },
-        {
-          name: "chatMessage",
-          description: "Send a chat message to the in-game server.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              message: { type: "STRING", description: "Text message to send" }
-            },
-            required: ["message"]
-          }
+// 1. Setup Gemini Tools & Model outside the bot creation flow
+const tools = [
+  {
+    functionDeclarations: [
+      {
+        name: "walkTo",
+        description: "Walk to specific X, Y, Z coordinates in the world.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            x: { type: "NUMBER", description: "X coordinate" },
+            y: { type: "NUMBER", description: "Y coordinate" },
+            z: { type: "NUMBER", description: "Z coordinate" }
+          },
+          required: ["x", "y", "z"]
         }
-      ]
-    }
-  ];
+      },
+      {
+        name: "followPlayer",
+        description: "Walk directly to a specific player.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            targetUsername: { type: "STRING", description: "Username of the target player." }
+          },
+          required: ["targetUsername"]
+        }
+      },
+      {
+        name: "digBlock",
+        description: "Mine/dig the block located at the given X, Y, Z coordinates.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            x: { type: "NUMBER", description: "Block X coordinate" },
+            y: { type: "NUMBER", description: "Block Y coordinate" },
+            z: { type: "NUMBER", description: "Block Z coordinate" }
+          },
+          required: ["x", "y", "z"]
+        }
+      },
+      {
+        name: "chatMessage",
+        description: "Send a chat message to the in-game server.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            message: { type: "STRING", description: "Text message to send" }
+          },
+          required: ["message"]
+        }
+      }
+    ]
+  }
+];
 
+let model = null;
+if (process.env.GEMINI_API_KEY) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ 
+  model = genAI.getGenerativeModel({ 
     model: 'gemini-1.5-flash',
     tools: tools
   });
+}
 
+function initBot() {
   console.log('[BOT] Connecting to EsnaSeiko.aternos.me:51316...');
 
+  // Direct bot creation, exactly like the working initial version
   const bot = mineflayer.createBot({
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
     username: 'Alice',
-    version: '1.21',
-    checkTimeoutInterval: 30 * 1000
-  });
-
-  // Track TCP socket state
-  bot._client.on('connect', () => {
-    console.log('[NET] Low-level TCP connection established! Handshaking with Minecraft server...');
+    version: '1.21'
   });
 
   bot.loadPlugin(pathfinder);
@@ -163,7 +155,7 @@ function initBot() {
   };
 
   bot.on('chat', async (username, message) => {
-    if (username === bot.username) return;
+    if (username === bot.username || !model) return;
 
     console.log(`[CHAT] ${username}: ${message}`);
 
@@ -198,10 +190,6 @@ Analyze the input. If it requires physical actions (walking, mining, speaking), 
     } catch (err) {
       console.error('[GEMINI ERROR]', err.message || err);
     }
-  });
-
-  bot.on('kicked', (reason) => {
-    console.log('[BOT KICKED]', reason);
   });
 
   bot.on('error', (err) => {
