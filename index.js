@@ -38,17 +38,17 @@ function initBot() {
 
   bot.on('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
-    // Ładowanie nawigacji dopiero PO wejściu bota do gry
     try {
       bot.loadPlugin(pathfinder);
       const defaultMove = new Movements(bot);
       bot.pathfinder.setMovements(defaultMove);
+      console.log('[PATHFINDER SETUP] Pathfinder ready!');
     } catch (e) {
-      console.log('[PATHFINDER SETUP]', e.message);
+      console.log('[PATHFINDER SETUP ERROR]', e.message);
     }
   });
 
-  // Definicje akcji bota
+  // Bot actions definitions
   const botActions = {
     async walkTo({ x, y, z }) {
       bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
@@ -79,13 +79,14 @@ function initBot() {
     }
   };
 
-  bot.on('chat', async (username, message) => {
+  // Helper function to process incoming AI messages
+  async function handleUserMessage(username, text) {
     if (username === bot.username) return;
 
-    console.log(`[CHAT] ${username}: ${message}`);
+    console.log(`[PROCESSING CHAT] ${username}: ${text}`);
     const botPos = bot.entity ? bot.entity.position : { x: 0, y: 0, z: 0 };
 
-    const aiResult = await analyzeMessage(username, message, botPos);
+    const aiResult = await analyzeMessage(username, text, botPos);
     if (!aiResult) return;
 
     if (aiResult.type === 'function') {
@@ -97,6 +98,26 @@ function initBot() {
       }
     } else if (aiResult.type === 'text' && aiResult.text) {
       bot.chat(aiResult.text.trim());
+    }
+  }
+
+  // Standard chat event
+  bot.on('chat', (username, message) => {
+    handleUserMessage(username, message);
+  });
+
+  // Raw chat event fallback (for custom server chat formats)
+  bot.on('messagestr', (message, messagePosition) => {
+    if (!message || messagePosition === 'game_info') return;
+
+    // Match patterns like "<Player> message" or "Player: message"
+    const match = message.match(/^(?:<|\[)?([a-zA-Z0-9_]+)(?:>|\])?[:\s]\s*(.+)$/);
+    if (match) {
+      const username = match[1];
+      const text = match[2];
+      if (username !== bot.username) {
+        handleUserMessage(username, text);
+      }
     }
   });
 
