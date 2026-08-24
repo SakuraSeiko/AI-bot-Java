@@ -31,7 +31,7 @@ function initBot() {
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
     username: 'Alice',
-    version: '1.20.4'
+    version: '1.21'
   });
 
   bot.on('login', () => {
