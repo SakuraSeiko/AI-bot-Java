@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+import { GoogleGenAI } from '@google/genai';
 
 const tools = [
   {
@@ -55,20 +55,16 @@ const tools = [
   }
 ];
 
-let model = null;
+let ai = null;
 
 function initGemini() {
   if (process.env.GEMINI_API_KEY) {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
-      tools: tools
-    });
+    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 }
 
 async function analyzeMessage(username, message, botPos) {
-  if (!model) return null;
+  if (!ai) return null;
 
   const prompt = `You are an autonomous Minecraft companion bot named Alice. 
 Current location: X:${Math.round(botPos.x)}, Y:${Math.round(botPos.y)}, Z:${Math.round(botPos.z)}.
@@ -76,17 +72,24 @@ Player ${username} said: "${message}".
 If action (walk, follow, dig, speak) is required, call the appropriate tool. Otherwise reply concisely.`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const call = result.response.functionCalls();
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash-lite',
+      contents: prompt,
+      config: {
+        tools: tools
+      }
+    });
 
-    if (call && call.length > 0) {
-      return { type: 'function', action: call[0] };
+    const functionCalls = response.functionCalls;
+    if (functionCalls && functionCalls.length > 0) {
+      return { type: 'function', action: functionCalls[0] };
     }
-    return { type: 'text', text: result.response.text() };
+
+    return { type: 'text', text: response.text };
   } catch (err) {
     console.error('[GEMINI ERROR]', err.message || err);
     return null;
   }
 }
 
-module.exports = { initGemini, analyzeMessage };
+export { initGemini, analyzeMessage };
