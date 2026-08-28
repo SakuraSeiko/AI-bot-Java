@@ -5,7 +5,7 @@ const tools = [
     functionDeclarations: [
       {
         name: "walkTo",
-        description: "Walk to specific X, Y, Z coordinates in the world.",
+        description: "Walk precisely to specific X, Y, Z coordinates using advanced pathfinding.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -18,7 +18,7 @@ const tools = [
       },
       {
         name: "followPlayer",
-        description: "Walk directly to a specific player.",
+        description: "Dynamically follow a specific player across the world.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -28,25 +28,72 @@ const tools = [
         }
       },
       {
-        name: "digBlock",
-        description: "Mine/dig the block located at the given X, Y, Z coordinates.",
+        name: "stopMoving",
+        description: "Halt all movement, pathfinding, and combat immediately.",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "lookAtCoords",
+        description: "Direct camera view towards specific coordinates.",
         parameters: {
           type: "OBJECT",
           properties: {
-            x: { type: "NUMBER", description: "Block X coordinate" },
-            y: { type: "NUMBER", description: "Block Y coordinate" },
-            z: { type: "NUMBER", description: "Block Z coordinate" }
+            x: { type: "NUMBER" }, y: { type: "NUMBER" }, z: { type: "NUMBER" }
           },
           required: ["x", "y", "z"]
         }
       },
       {
-        name: "chatMessage",
-        description: "Send a chat message to the in-game server.",
+        name: "findAndCollect",
+        description: "Automatically find a block type nearby and mine/collect it into inventory.",
         parameters: {
           type: "OBJECT",
           properties: {
-            message: { type: "STRING", description: "Text message to send" }
+            blockName: { type: "STRING", description: "Minecraft block name (e.g. 'oak_log', 'stone', 'iron_ore')" }
+          },
+          required: ["blockName"]
+        }
+      },
+      {
+        name: "attackMob",
+        description: "Engage in PvP combat against a nearby mob or entity.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            mobName: { type: "STRING", description: "Name of the mob (e.g. 'zombie', 'skeleton', 'creeper')" }
+          },
+          required: ["mobName"]
+        }
+      },
+      {
+        name: "listInventory",
+        description: "Check current inventory items and quantities.",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "equipItem",
+        description: "Equip an item from inventory to hand, armor slot, etc.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            itemName: { type: "STRING", description: "Name or part of item name" },
+            destination: { type: "STRING", description: "Slot type: 'hand', 'head', 'torso', 'legs', 'feet', 'off-hand'" }
+          },
+          required: ["itemName"]
+        }
+      },
+      {
+        name: "useItem",
+        description: "Use or consume currently held item (eat food, drink potion, use bucket).",
+        parameters: { type: "OBJECT", properties: {} }
+      },
+      {
+        name: "chatMessage",
+        description: "Send a chat message to the server.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            message: { type: "STRING" }
           },
           required: ["message"]
         }
@@ -63,21 +110,22 @@ function initGemini() {
   }
 }
 
-async function analyzeMessage(username, message, botPos) {
+async function analyzeMessage(username, message, env) {
   if (!ai) return null;
 
-  const prompt = `You are an autonomous Minecraft companion bot named Alice. 
-Current location: X:${Math.round(botPos.x)}, Y:${Math.round(botPos.y)}, Z:${Math.round(botPos.z)}.
-Player ${username} said: "${message}". 
-If action (walk, follow, dig, speak) is required, call the appropriate tool. Otherwise reply concisely.`;
+  const prompt = `You are Alice, an autonomous, fully integrated Minecraft companion bot.
+Status -> Pos: X:${Math.round(env.position.x)} Y:${Math.round(env.position.y)} Z:${Math.round(env.position.z)} | HP: ${env.health} | Food: ${env.food}
+Inventory: ${env.inventorySummary}
+Nearby entities: ${env.nearby}
+
+Player ${username} said: "${message}".
+Evaluate what action is needed (movement, collection, combat, inventory management, or chat reply) and call the corresponding tool.`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash-lite',
       contents: prompt,
-      config: {
-        tools: tools
-      }
+      config: { tools: tools }
     });
 
     const functionCalls = response.functionCalls;
