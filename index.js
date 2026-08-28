@@ -1,131 +1,135 @@
-const http = require('http');
-const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const { initGemini, analyzeMessage } = require('./gemini');
+Const http = require('http');
+Const mineflayer = require('mineflayer');
+Const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+Const { initGemini, analyzeMessage } = require('./gemini');
 
-const PORT = process.env.PORT || 3000;
+Const PORT = process.env.PORT || 3000;
 
 // HTTP server required for Render uptime checks
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Alice AI Bot Service is active.\n');
+Const server = http.createServer((req, res) => {
+  Res.writeHead(200, { 'Content-Type': 'text/plain' });
+  Res.end('Alice AI Bot Service is active.\n');
 });
 
-server.listen(PORT, () => {
-  console.log(`[SYSTEM] Web server listening on port ${PORT}`);
-  initGemini();
-  initBot();
+Server.listen(PORT, () => {
+  Console.log(`[SYSTEM] Web server listening on port ${PORT}`);
+  InitGemini();
+  InitBot();
 });
 
-function initBot() {
-  if (!process.env.GEMINI_API_KEY) {
-    console.error('[ERROR] GEMINI_API_KEY environment variable is missing!');
-    return;
+Function initBot() {
+  If (!process.env.GEMINI_API_KEY) {
+    Console.error('[ERROR] GEMINI_API_KEY environment variable is missing!');
+    Return;
   }
 
-  console.log('[BOT] Connecting to EsnaSeiko.aternos.me:51316...');
+  Console.log('[BOT] Connecting to EsnaSeiko.aternos.me:51316...');
 
-  const bot = mineflayer.createBot({
-    host: 'EsnaSeiko.aternos.me',
-    port: 51316,
-    username: 'Alice',
-    version: '1.21'
+  Const bot = mineflayer.createBot({
+    Host: 'EsnaSeiko.aternos.me',
+    Port: 51316,
+    Username: 'Alice',
+    Version: '1.21'
   });
 
-  bot.on('login', () => {
-    console.log('[BOT] Successfully logged in to the server.');
+  Bot.on('login', () => {
+    Console.log('[BOT] Successfully logged in to the server.');
   });
 
-  bot.on('spawn', () => {
-    console.log('[BOT] Alice spawned in the world.');
-    try {
-      bot.loadPlugin(pathfinder);
-      const defaultMove = new Movements(bot);
-      bot.pathfinder.setMovements(defaultMove);
-      console.log('[PATHFINDER SETUP] Pathfinder ready!');
+  Bot.on('spawn', () => {
+    Console.log('[BOT] Alice spawned in the world.');
+    Try {
+      Bot.loadPlugin(pathfinder);
+      Const defaultMove = new Movements(bot);
+      Bot.pathfinder.setMovements(defaultMove);
+      Console.log('[PATHFINDER SETUP] Pathfinder ready!');
     } catch (e) {
-      console.log('[PATHFINDER SETUP ERROR]', e.message);
+      Console.log('[PATHFINDER SETUP ERROR]', e.message);
     }
   });
 
   // Bot actions definitions
-  const botActions = {
-    async walkTo({ x, y, z }) {
-      bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
-      return `Walking to X:${x} Y:${y} Z:${z}`;
+  Const botActions = {
+    Async walkTo({ x, y, z }) {
+      Bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
+      Return `Walking to X:${x} Y:${y} Z:${z}`;
     },
 
-    async followPlayer({ targetUsername }) {
-      const player = bot.players[targetUsername]?.entity;
-      if (!player) return `Player ${targetUsername} not visible.`;
-      bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true);
-      return `Following ${targetUsername}`;
+    Async followPlayer({ targetUsername }) {
+      Const player = bot.players[targetUsername]?.entity;
+      If (!player) return `Player ${targetUsername} not visible.`;
+      Bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true);
+      Return `Following ${targetUsername}`;
     },
 
-    async digBlock({ x, y, z }) {
-      const targetBlock = bot.blockAt(bot.vec3(x, y, z));
-      if (!targetBlock || targetBlock.name === 'air') return "No block there.";
-      try {
-        await bot.dig(targetBlock);
-        return `Mined ${targetBlock.name}`;
+    Async digBlock({ x, y, z }) {
+      Const targetBlock = bot.blockAt(bot.vec3(x, y, z));
+      If (!targetBlock || targetBlock.name === 'air') return "No block there.";
+      Try {
+        Await bot.dig(targetBlock);
+        Return `Mined ${targetBlock.name}`;
       } catch (err) {
-        return `Mining error: ${err.message}`;
+        Return `Mining error: ${err.message}`;
       }
     },
 
-    async chatMessage({ message }) {
-      bot.chat(message);
-      return `Sent message: ${message}`;
+    Async chatMessage({ message }) {
+      // Wysyłanie przez /me
+      Bot.chat(`/me ${message}`);
+      Return `Sent message: ${message}`;
     }
   };
 
   // Universal message listener for MC 1.21 packet compatibility
-  bot.on('message', async (jsonMsg, position) => {
-    if (position === 'game_info') return;
+  Bot.on('message', async (jsonMsg, position) => {
+    If (position === 'game_info') return;
 
-    const fullText = jsonMsg.toString();
-    if (!fullText.trim()) return;
+    Const fullText = jsonMsg.toString();
+    If (!fullText.trim()) return;
 
-    console.log(`[RAW CHAT RECEIVED] ${fullText}`);
+    Console.log(`[RAW CHAT RECEIVED] ${fullText}`);
 
     // Updated regex allowing dots, dashes, and standard characters in usernames
-    const match = fullText.match(/^(?:<|\[)?([.\w-]+)(?:>|\])?[:\s]\s*(.+)$/);
+    Const match = fullText.match(/^(?:<|\[)?([.\w-]+)(?:>|\])?[:\s]\s*(.+)$/);
     
-    let username = null;
-    let messageText = fullText;
+    Let username = null;
+    Let messageText = fullText;
 
-    if (match) {
-      username = match[1];
-      messageText = match[2];
+    If (match) {
+      Username = match[1];
+      MessageText = match[2];
     }
 
     // Ignore self messages
-    if (username === bot.username || fullText.includes(bot.username)) return;
+    If (username === bot.username || fullText.includes(bot.username)) return;
 
-    const botPos = bot.entity ? bot.entity.position : { x: 0, y: 0, z: 0 };
-    const sender = username || 'Player';
+    // Ignore messages starting with Alice or Alice:
+    If (messageText.trim().toLowerCase().startsWith('alice')) return;
 
-    const aiResult = await analyzeMessage(sender, messageText, botPos);
-    if (!aiResult) return;
+    Const botPos = bot.entity ? Bot.entity.position : { x: 0, y: 0, z: 0 };
+    Const sender = username || 'Player';
 
-    if (aiResult.type === 'function') {
-      const { name, args } = aiResult.action;
-      console.log(`[AI ACTION] ${name}`, args);
-      if (botActions[name]) {
-        const res = await botActions[name](args);
-        console.log(`[ACTION RESULT] ${res}`);
+    Const aiResult = await analyzeMessage(sender, messageText, botPos);
+    If (!aiResult) return;
+
+    If (aiResult.type === 'function') {
+      Const { name, args } = aiResult.action;
+      Console.log(`[AI ACTION] ${name}`, args);
+      If (botActions[name]) {
+        Const res = await botActions[name](args);
+        Console.log(`[ACTION RESULT] ${res}`);
       }
     } else if (aiResult.type === 'text' && aiResult.text) {
-      bot.chat(aiResult.text.trim());
+      Bot.chat(`/me ${aiResult.text.trim()}`);
     }
   });
 
-  bot.on('error', (err) => {
-    console.error('[BOT ERROR]', err.message || err);
+  Bot.on('error', (err) => {
+    Console.error('[BOT ERROR]', err.message || err);
   });
 
-  bot.on('end', (reason) => {
-    console.log(`[BOT] Disconnected (${reason}). Reconnecting in 10 seconds...`);
-    setTimeout(initBot, 10000);
+  Bot.on('end', (reason) => {
+    Console.log(`[BOT] Disconnected (${reason}). Reconnecting in 10 seconds...`);
+    SetTimeout(initBot, 10000);
   });
 }
