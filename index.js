@@ -1,6 +1,7 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const Vec3 = require('vec3');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -63,7 +64,7 @@ function initBot() {
     },
 
     async digBlock({ x, y, z }) {
-      const targetBlock = bot.blockAt(bot.vec3(x, y, z));
+      const targetBlock = bot.blockAt(new Vec3(x, y, z));
       if (!targetBlock || targetBlock.name === 'air') return "No block there.";
       try {
         await bot.dig(targetBlock);
