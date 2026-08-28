@@ -28,8 +28,8 @@ const tools = [
         }
       },
       {
-        name: "stopMoving",
-        description: "Halt all movement, pathfinding, and combat immediately.",
+        name: "stopEverything",
+        description: "Halt all movement, pathfinding, collection, and combat immediately.",
         parameters: { type: "OBJECT", properties: {} }
       },
       {
@@ -72,7 +72,7 @@ const tools = [
       },
       {
         name: "equipItem",
-        description: "Equip an item from inventory to hand, armor slot, etc.",
+        description: "Equip an item from inventory to hand or armor slots.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -81,11 +81,6 @@ const tools = [
           },
           required: ["itemName"]
         }
-      },
-      {
-        name: "useItem",
-        description: "Use or consume currently held item (eat food, drink potion, use bucket).",
-        parameters: { type: "OBJECT", properties: {} }
       },
       {
         name: "chatMessage",
@@ -113,7 +108,7 @@ function initGemini() {
 async function analyzeMessage(username, message, env) {
   if (!ai) return null;
 
-  const prompt = `You are Alice, an autonomous, fully integrated Minecraft companion bot.
+  const prompt = `You are Alice, an autonomous, fully integrated Minecraft companion bot with access to pathfinding, combat, collection, and survival plugins.
 Status -> Pos: X:${Math.round(env.position.x)} Y:${Math.round(env.position.y)} Z:${Math.round(env.position.z)} | HP: ${env.health} | Food: ${env.food}
 Inventory: ${env.inventorySummary}
 Nearby entities: ${env.nearby}
