@@ -1,15 +1,18 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const pvp = require('mineflayer-pvp').plugin;
+const collectBlock = require('mineflayer-collectblock').plugin;
+const autoEat = require('mineflayer-auto-eat').plugin;
+const armorManager = require('mineflayer-armor-manager');
 const Vec3 = require('vec3');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
 
-// HTTP server required for Render uptime checks
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Alice AI Bot Service is active.\n');
+  res.end('Alice AI Bot Service (Full Arsenal) is active.\n');
 });
 
 server.listen(PORT, () => {
@@ -40,37 +43,101 @@ function initBot() {
   bot.on('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
     try {
+      // Ładujemy absolutnie WSZYSTKIE kluczowe pluginy
       bot.loadPlugin(pathfinder);
+      bot.loadPlugin(pvp);
+      bot.loadPlugin(collectBlock);
+      bot.loadPlugin(autoEat);
+      bot.loadPlugin(armorManager);
+
       const defaultMove = new Movements(bot);
+      defaultMove.allow1by1towers = true;
       bot.pathfinder.setMovements(defaultMove);
-      console.log('[PATHFINDER SETUP] Pathfinder ready!');
+
+      // Konfiguracja auto-jedzenia (żeby dbała o siebie)
+      if (bot.autoEat) {
+        bot.autoEat.options = {
+          priority: 'food',
+          startEating: 14,
+          bannedFood: []
+        };
+      }
+
+      console.log('[FULL ARSENAL] All plugins loaded and configured!');
     } catch (e) {
-      console.log('[PATHFINDER SETUP ERROR]', e.message);
+      console.log('[PLUGIN SETUP ERROR]', e.message);
     }
   });
 
-  // Bot actions definitions
+  // Pełny rejestr akcji udostępniający 100% możliwości bota dla AI
   const botActions = {
     async walkTo({ x, y, z }) {
-      bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
-      return `Walking to X:${x} Y:${y} Z:${z}`;
+      try {
+        await bot.pathfinder.goto(new goals.GoalBlock(x, y, z));
+        return `Arrived at X:${x} Y:${y} Z:${z}`;
+      } catch (err) {
+        return `Navigation error: ${err.message}`;
+      }
     },
 
     async followPlayer({ targetUsername }) {
       const player = bot.players[targetUsername]?.entity;
       if (!player) return `Player ${targetUsername} not visible.`;
       bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true);
-      return `Following ${targetUsername}`;
+      return `Now following ${targetUsername}`;
     },
 
-    async digBlock({ x, y, z }) {
-      const targetBlock = bot.blockAt(new Vec3(x, y, z));
-      if (!targetBlock || targetBlock.name === 'air') return "No block there.";
+    async stopEverything() {
+      bot.pathfinder.stop();
+      bot.pvp.stop();
+      if (bot.collectBlock) bot.collectBlock.cancel();
+      return `Stopped all movement, combat, and collection.`;
+    },
+
+    async lookAtCoords({ x, y, z }) {
+      await bot.lookAt(new Vec3(x, y, z));
+      return `Looking at X:${x} Y:${y} Z:${z}`;
+    },
+
+    async findAndCollect({ blockName }) {
+      const blockType = bot.registry.blocksByName[blockName];
+      if (!blockType) return `Unknown block type: ${blockName}`;
+
+      const block = bot.findBlock({ matching: blockType.id, maxDistance: 32 });
+      if (!block) return `No ${blockName} found within 32 blocks.`;
+
       try {
-        await bot.dig(targetBlock);
-        return `Mined ${targetBlock.name}`;
+        await bot.collectBlock.collect(block);
+        return `Successfully collected ${blockName}`;
       } catch (err) {
-        return `Mining error: ${err.message}`;
+        return `Collection failed: ${err.message}`;
+      }
+    },
+
+    async attackMob({ mobName }) {
+      const entity = bot.nearestEntity((e) => {
+        return e.type === 'mob' && e.name && e.name.toLowerCase().includes(mobName.toLowerCase());
+      });
+      if (!entity) return `No targetable mob matching "${mobName}" found nearby.`;
+      
+      bot.pvp.attack(entity);
+      return `Attacking ${entity.name}`;
+    },
+
+    async listInventory() {
+      const items = bot.inventory.items();
+      if (items.length === 0) return "Inventory is empty.";
+      return items.map(i => `${i.count}x ${i.name}`).join(', ');
+    },
+
+    async equipItem({ itemName, destination }) {
+      const item = bot.inventory.items().find(i => i.name.includes(itemName));
+      if (!item) return `Item ${itemName} not found in inventory.`;
+      try {
+        await bot.equip(item, destination || 'hand');
+        return `Equipped ${itemName} to ${destination || 'hand'}`;
+      } catch (err) {
+        return `Equip failed: ${err.message}`;
       }
     },
 
@@ -80,7 +147,6 @@ function initBot() {
     }
   };
 
-  // Universal message listener for MC 1.21 packet compatibility
   bot.on('message', async (jsonMsg, position) => {
     if (position === 'game_info') return;
 
@@ -89,9 +155,7 @@ function initBot() {
 
     console.log(`[RAW CHAT RECEIVED] ${fullText}`);
 
-    // Updated regex allowing dots, dashes, and standard characters in usernames
     const match = fullText.match(/^(?:<|\[)?([.\w-]+)(?:>|\])?[:\s]\s*(.+)$/);
-    
     let username = null;
     let messageText = fullText;
 
@@ -100,16 +164,28 @@ function initBot() {
       messageText = match[2];
     }
 
-    // Ignore self messages
     if (username === bot.username || fullText.includes(bot.username)) return;
-
-    // Ignore messages starting with Alice or Alice:
     if (messageText.trim().toLowerCase().startsWith('alice')) return;
 
     const botPos = bot.entity ? bot.entity.position : { x: 0, y: 0, z: 0 };
     const sender = username || 'Player';
 
-    const aiResult = await analyzeMessage(sender, messageText, botPos);
+    // Kontekst środowiskowy dla AI obejmujący stan bota i otoczenie
+    const nearbyEntities = Object.values(bot.entities)
+      .filter(e => e.position.distanceTo(botPos) < 16 && e !== bot.entity)
+      .map(e => `${e.name || e.type} at (${Math.round(e.position.x)}, ${Math.round(e.position.y)}, ${Math.round(e.position.z)})`)
+      .slice(0, 5)
+      .join(', ');
+
+    const contextData = {
+      position: botPos,
+      health: bot.health,
+      food: bot.food,
+      inventorySummary: bot.inventory.items().map(i => `${i.count}x ${i.name}`).join(', ') || 'empty',
+      nearby: nearbyEntities || 'nothing special'
+    };
+
+    const aiResult = await analyzeMessage(sender, messageText, contextData);
     if (!aiResult) return;
 
     if (aiResult.type === 'function') {
