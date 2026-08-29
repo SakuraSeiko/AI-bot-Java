@@ -29,12 +29,7 @@ function initBot() {
     version: '1.21'
   });
 
-  // Zastąpienie starego eventu physicTick przez physicsTick dla wewnętrznych pluginów
-  bot.on('physicsTick', () => {
-    bot.emit('physicTick');
-  });
-
-  // Ładowanie pluginów
+  // Ładowanie pluginów (bez modyfikacji physicTick, zostawiamy domyślną pętlę silnika)
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(collectBlock);
   bot.loadPlugin(toolPlugin);
@@ -55,6 +50,7 @@ function initBot() {
       mcData = require('minecraft-data')(version);
       if (mcData) {
         const defaultMove = new Movements(bot, mcData);
+        defaultMove.canDig = true;
         bot.pathfinder.setMovements(defaultMove);
         console.log('[BOT] Pathfinder initialized successfully.');
       }
@@ -131,17 +127,18 @@ function initBot() {
       const { name, args } = result.action;
       console.log(`[ACTION] Executing ${name} with args:`, args);
 
-      if (name === 'chatMessage') {
-        if (args.message) bot.chat(`/me ${args.message}`);
-      } else if (name === 'interactWithWorld') {
-        const { action, target } = args;
+      if (name === 'interactWithWorld') {
+        const { action, target, sayInChat } = args;
+
+        if (sayInChat) {
+          bot.chat(`/me ${sayInChat}`);
+        }
 
         switch (action) {
           case 'follow':
             const playerToFollow = findTargetEntity(username);
             if (playerToFollow) {
               bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
-              bot.chat('/me Podążam za Tobą!');
             } else {
               bot.chat('/me Nie widzę Cię w pobliżu.');
             }
@@ -149,7 +146,6 @@ function initBot() {
 
           case 'stop':
             bot.pathfinder.setGoal(null);
-            bot.chat('/me Zatrzymałam się.');
             break;
 
           case 'mine':
@@ -160,17 +156,11 @@ function initBot() {
             });
 
             if (targetBlock) {
-              bot.chat(`/me Znalazłam ${targetBlock.name}, zbieram!`);
               bot.collectBlock.collect(targetBlock, (err) => {
-                if (err) {
-                  console.error('[COLLECT ERROR]', err);
-                  bot.chat('/me Wystąpił problem podczas zbierania bloku.');
-                } else {
-                  bot.chat(`/me Zebrano ${targetBlock.name}!`);
-                }
+                if (err) console.error('[COLLECT ERROR]', err);
               });
             } else {
-              bot.chat(`/me Nie widzę w okolicy nic co przypomina "${target}".`);
+              bot.chat(`/me Nie widzę w okolicy "${target}".`);
             }
             break;
 
@@ -178,11 +168,7 @@ function initBot() {
             const itemKw = (target || '').toLowerCase();
             const itemToDrop = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemKw));
             if (itemToDrop) {
-              bot.tossStack(itemToDrop)
-                .then(() => bot.chat(`/me Wyrzuciłam ${itemToDrop.name}!`))
-                .catch(err => console.error('[TOSS ERROR]', err));
-            } else {
-              bot.chat(`/me Nie mam w kieszeni przedmiotu "${target}".`);
+              bot.tossStack(itemToDrop).catch(err => console.error('[TOSS ERROR]', err));
             }
             break;
 
@@ -192,10 +178,7 @@ function initBot() {
             if (foodItem) {
               bot.equip(foodItem, 'hand')
                 .then(() => bot.consume())
-                .then(() => bot.chat(`/me Zjadłam ${foodItem.name}.`))
                 .catch(err => console.error('[EAT ERROR]', err));
-            } else {
-              bot.chat('/me Nie mam takiego jedzenia.');
             }
             break;
 
@@ -203,9 +186,7 @@ function initBot() {
             const gearKw = (target || '').toLowerCase();
             const gearItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(gearKw));
             if (gearItem) {
-              bot.equip(gearItem, 'hand')
-                .then(() => bot.chat(`/me Wzięłam do ręki ${gearItem.name}.`))
-                .catch(err => console.error('[EQUIP ERROR]', err));
+              bot.equip(gearItem, 'hand').catch(err => console.error('[EQUIP ERROR]', err));
             }
             break;
         }
