@@ -1,6 +1,6 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
-const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -42,7 +42,7 @@ function initBot() {
       const version = bot.version || '1.21';
       const mcData = require('minecraft-data')(version);
       if (mcData) {
-        const defaultMove = new movements.Pathfinder(bot, mcData);
+        const defaultMove = new Movements(bot, mcData);
         bot.pathfinder.setMovements(defaultMove);
         console.log('[BOT] Pathfinder movements initialized successfully.');
       }
