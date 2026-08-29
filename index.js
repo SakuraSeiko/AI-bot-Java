@@ -153,9 +153,9 @@ function initBot() {
 
             if (targetBlock) {
               console.log(`[BOT] Moving to block ${targetBlock.name} at ${targetBlock.position}`);
-              bot.pathfinder.setGoal(new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z), true);
+              const defaultGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
               
-              bot.pathfinder.once('goal_reached', () => {
+              bot.pathfinder.goto(defaultGoal).then(() => {
                 const freshBlock = bot.blockAt(targetBlock.position);
                 if (freshBlock && freshBlock.name !== 'air') {
                   console.log(`[BOT] Digging block: ${freshBlock.name}`);
@@ -164,6 +164,8 @@ function initBot() {
                     else console.log('[BOT] Block mined successfully.');
                   });
                 }
+              }).catch(err => {
+                console.error('[PATH ERROR] Could not reach block:', err.message || err);
               });
             } else {
               bot.chat(`/me Nie widzę w okolicy niczego pasującego do "${target}".`);
