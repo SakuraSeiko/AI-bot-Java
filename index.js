@@ -1,6 +1,9 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const collectBlock = require('mineflayer-collectblock').plugin;
+const toolPlugin = require('mineflayer-tool').plugin;
+const pvp = require('mineflayer-pvp').plugin;
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -26,7 +29,11 @@ function initBot() {
     version: '1.21'
   });
 
+  // Ładowanie pluginów
   bot.loadPlugin(pathfinder);
+  bot.loadPlugin(collectBlock);
+  bot.loadPlugin(toolPlugin);
+  bot.loadPlugin(pvp);
 
   let mcData = null;
 
@@ -36,8 +43,6 @@ function initBot() {
 
   bot.once('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
-    
-    // WYMUSZENIE WŁĄCZENIA FIZYKI I KONTROLI RUCHU
     bot.physicsEnabled = true;
 
     try {
@@ -46,28 +51,52 @@ function initBot() {
       if (mcData) {
         const defaultMove = new Movements(bot, mcData);
         bot.pathfinder.setMovements(defaultMove);
-        console.log('[BOT] Pathfinder movements initialized successfully.');
+        console.log('[BOT] Pathfinder initialized successfully.');
       }
     } catch (err) {
-      console.error('[BOT ERROR] Failed to initialize pathfinder movements:', err.message || err);
+      console.error('[BOT ERROR] Pathfinder init error:', err.message || err);
     }
   });
 
-  // Wyszukiwanie gracza uwzględniające prefiksy Geysera / Bedrock
   function findTargetEntity(username) {
     const cleanUser = username.toLowerCase().replace(/^\./, '');
-    
     for (const name of Object.keys(bot.players)) {
       if (name.toLowerCase().replace(/^\./, '') === cleanUser) {
         if (bot.players[name]?.entity) return bot.players[name].entity;
       }
     }
-
     return Object.values(bot.entities).find(e => 
-      e.type === 'player' && 
-      e.username && 
-      e.username.toLowerCase().replace(/^\./, '') === cleanUser
+      e.type === 'player' && e.username && e.username.toLowerCase().replace(/^\./, '') === cleanUser
     );
+  }
+
+  function getNearbyBlockNames() {
+    if (!bot.entity) return [];
+    const blocks = bot.findBlocks({
+      matching: (b) => b && b.name !== 'air' && b.name !== 'cave_air',
+      maxDistance: 10,
+      count: 20
+    });
+    const names = new Set();
+    for (const pos of blocks) {
+      const b = bot.blockAt(pos);
+      if (b) names.add(b.name);
+    }
+    return Array.from(names);
+  }
+
+  function getInventoryItems() {
+    return bot.inventory.items().map(item => `${item.name} x${item.count}`);
+  }
+
+  function getEquippedItems() {
+    const slots = ['head', 'torso', 'legs', 'feet', 'hand', 'off-hand'];
+    const equipped = [];
+    for (const slot of slots) {
+      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)];
+      if (item) equipped.push(`${slot}: ${item.name}`);
+    }
+    return equipped;
   }
 
   bot.on('chat', async (username, message) => {
@@ -75,7 +104,20 @@ function initBot() {
 
     console.log(`[CHAT] ${username}: ${message}`);
 
-    const result = await analyzeMessage(username, message, bot.entity.position);
+    const worldContext = {
+      pos: {
+        x: Math.floor(bot.entity.position.x),
+        y: Math.floor(bot.entity.position.y),
+        z: Math.floor(bot.entity.position.z)
+      },
+      health: bot.health || 20,
+      food: bot.food || 20,
+      inventory: getInventoryItems(),
+      equipment: getEquippedItems(),
+      nearbyBlocks: getNearbyBlockNames()
+    };
+
+    const result = await analyzeMessage(username, message, worldContext);
     if (!result) return;
 
     if (result.type === 'text') {
@@ -84,84 +126,84 @@ function initBot() {
       const { name, args } = result.action;
       console.log(`[ACTION] Executing ${name} with args:`, args);
 
-      switch (name) {
-        case 'chatMessage':
-          if (args.message) bot.chat(`/me ${args.message}`);
-          break;
+      if (name === 'chatMessage') {
+        if (args.message) bot.chat(`/me ${args.message}`);
+      } else if (name === 'interactWithWorld') {
+        const { action, target } = args;
 
-        case 'walkTo':
-          bot.pathfinder.setGoal(new goals.GoalBlock(args.x, args.y, args.z));
-          bot.chat(`/me Idę na X:${args.x} Y:${args.y} Z:${args.z}`);
-          break;
+        switch (action) {
+          case 'follow':
+            const playerToFollow = findTargetEntity(username);
+            if (playerToFollow) {
+              bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
+              bot.chat('/me Podążam za Tobą!');
+            } else {
+              bot.chat('/me Nie widzę Cię w pobliżu.');
+            }
+            break;
 
-        case 'followPlayer':
-          const target = findTargetEntity(args.targetUsername);
-          if (target) {
-            bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
-            bot.chat(`/me Podążam za tobą!`);
-          } else {
-            bot.chat(`/me Nie widzę Cię w pamięci encji.`);
-          }
-          break;
+          case 'stop':
+            bot.pathfinder.setGoal(null);
+            bot.chat('/me Zatrzymałam się.');
+            break;
 
-        case 'stopMovement':
-          bot.pathfinder.setGoal(null);
-          bot.setControlState('jump', false);
-          bot.setControlState('forward', false);
-          bot.chat('/me Zatrzymałam się.');
-          break;
+          case 'mine':
+            const blockKw = (target || '').toLowerCase();
+            const targetBlock = bot.findBlock({
+              matching: (b) => b && b.name !== 'air' && b.name.toLowerCase().includes(blockKw),
+              maxDistance: 16
+            });
 
-        case 'digBlock':
-          const Vec3 = require('vec3');
-          const targetPos = new Vec3(args.x, args.y, args.z);
-          const block = bot.blockAt(targetPos);
-
-          if (block && block.name !== 'air') {
-            bot.chat(`/me Kopię ${block.name}...`);
-            
-            // Bezpośrednie wywołanie kopania z pominięciem obietnicy lookAt
-            bot.targetDigBlock = block;
-            bot.dig(block)
-              .then(() => bot.chat('/me Wykopano!'))
-              .catch(err => {
-                console.error('[DIG ERROR]', err);
-                bot.chat('/me Nie udało się wykopać bloku.');
+            if (targetBlock) {
+              bot.chat(`/me Znalazłam ${targetBlock.name}, zbieram!`);
+              bot.collectBlock.collect(targetBlock, (err) => {
+                if (err) {
+                  console.error('[COLLECT ERROR]', err);
+                  bot.chat('/me Wystąpił problem podczas zbierania bloku.');
+                } else {
+                  bot.chat(`/me Zebrano ${targetBlock.name}!`);
+                }
               });
-          } else {
-            bot.chat("/me Tu nie ma bloku.");
-          }
-          break;
-
-        case 'findAndDigBlock':
-          if (!mcData) {
-            bot.chat("/me Brak danych świata.");
+            } else {
+              bot.chat(`/me Nie widzę w okolicy nic co przypomina "${target}".`);
+            }
             break;
-          }
-          const targetBlockType = mcData.blocksByName[args.blockName];
-          if (!targetBlockType) {
-            bot.chat(`/me Nie znam bloku ${args.blockName}.`);
+
+          case 'toss_item':
+            const itemKw = (target || '').toLowerCase();
+            const itemToDrop = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemKw));
+            if (itemToDrop) {
+              bot.tossStack(itemToDrop)
+                .then(() => bot.chat(`/me Wyrzuciłam ${itemToDrop.name}!`))
+                .catch(err => console.error('[TOSS ERROR]', err));
+            } else {
+              bot.chat(`/me Nie mam w kieszeni przedmiotu "${target}".`);
+            }
             break;
-          }
 
-          const foundBlock = bot.findBlock({
-            matching: targetBlockType.id,
-            maxDistance: 32
-          });
+          case 'eat':
+            const foodKw = (target || '').toLowerCase();
+            const foodItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(foodKw));
+            if (foodItem) {
+              bot.equip(foodItem, 'hand')
+                .then(() => bot.consume())
+                .then(() => bot.chat(`/me Zjadłam ${foodItem.name}.`))
+                .catch(err => console.error('[EAT ERROR]', err));
+            } else {
+              bot.chat('/me Nie mam takiego jedzenia.');
+            }
+            break;
 
-          if (foundBlock) {
-            bot.chat(`/me Znalazłam ${args.blockName}, idę tam!`);
-            bot.pathfinder.setGoal(new goals.GoalGetToBlock(foundBlock.position.x, foundBlock.position.y, foundBlock.position.z));
-            
-            const onGoalReached = () => {
-              bot.dig(foundBlock)
-                .catch(err => console.error('[DIG ERROR]', err))
-                .finally(() => bot.off('goal_reached', onGoalReached));
-            };
-            bot.on('goal_reached', onGoalReached);
-          } else {
-            bot.chat(`/me Nie widzę bloku ${args.blockName} w pobliżu.`);
-          }
-          break;
+          case 'equip':
+            const gearKw = (target || '').toLowerCase();
+            const gearItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(gearKw));
+            if (gearItem) {
+              bot.equip(gearItem, 'hand')
+                .then(() => bot.chat(`/me Wzięłam do ręki ${gearItem.name}.`))
+                .catch(err => console.error('[EQUIP ERROR]', err));
+            }
+            break;
+        }
       }
     }
   });
