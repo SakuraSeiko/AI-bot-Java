@@ -10,11 +10,11 @@ const tools = [
         action: {
           type: "STRING",
           enum: ["mine", "follow", "toss_item", "equip", "eat", "stop", "chat_only"],
-          description: "Rodzaj akcji: mine (kop blok), follow (chodź za graczem), toss_item (wyrzuć), equip (załóż), eat (zjedz), stop (zatrzymaj), chat_only (tylko gadaj)."
+          description: "Rodzaj akcji: mine (znajdź i wykop blok, np. oak_log, stone, dirt), follow (chodź za graczem), toss_item (wyrzuć), equip (załóż), eat (zjedz), stop (zatrzymaj), chat_only (tylko gadaj)."
         },
         target: {
           type: "STRING",
-          description: "Nazwa bloku (np. oak_log, dirt, stone) lub przedmiotu."
+          description: "Nazwa bloku (np. oak_log, stone, dirt) lub przedmiotu."
         },
         sayInChat: {
           type: "STRING",
@@ -48,7 +48,7 @@ STAN AKTUALNY:
 ZASADY:
 1. Zawsze używaj funkcji interactWithWorld.
 2. Jeśli gracz każe Ci iść za sobą, wybierz action="follow".
-3. Jeśli gracz każe Ci kopać/zbierać (np. drewno, ziemię), wybierz action="mine" i podaj target.
+3. Jeśli gracz każe Ci kopać/zbierać (np. drewno, kamień, ziemię), wybierz action="mine" i podaj dokładną angielską nazwę bloku w target (np. oak_log, stone, dirt).
 4. Tekst, który Alice mówi na czacie, zawsze wpisuj do pola sayInChat.`;
 
   try {
