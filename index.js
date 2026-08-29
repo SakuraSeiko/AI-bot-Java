@@ -1,6 +1,7 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const collectBlock = require('mineflayer-collectblock').plugin;
 const toolPlugin = require('mineflayer-tool').plugin;
 const { initGemini, analyzeMessage } = require('./gemini');
 
@@ -27,8 +28,9 @@ function initBot() {
     version: '1.21'
   });
 
-  // Ładowanie wyłącznie pathfindera i narzędzi
+  // Ładowanie pluginów (pathfinder, collectblock, tool) z pominięciem pvp
   bot.loadPlugin(pathfinder);
+  bot.loadPlugin(collectBlock);
   bot.loadPlugin(toolPlugin);
 
   let mcData = null;
@@ -142,6 +144,22 @@ function initBot() {
 
           case 'stop':
             bot.pathfinder.setGoal(null);
+            break;
+
+          case 'mine':
+            const blockKw = (target || '').toLowerCase();
+            const targetBlock = bot.findBlock({
+              matching: (b) => b && b.name !== 'air' && b.name.toLowerCase().includes(blockKw),
+              maxDistance: 16
+            });
+
+            if (targetBlock) {
+              bot.collectBlock.collect(targetBlock, (err) => {
+                if (err) console.error('[COLLECT ERROR]', err);
+              });
+            } else {
+              bot.chat(`/me Nie widzę w okolicy "${target}".`);
+            }
             break;
 
           case 'toss_item':
