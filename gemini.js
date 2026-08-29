@@ -3,29 +3,39 @@ const { GoogleGenAI } = require('@google/genai');
 const tools = [
   {
     name: "interactWithWorld",
-    description: "Wykonaj fizyczną akcję w świecie gry oraz wypowiedz się na czacie.",
+    description: "Execute a sequence of physical actions in the game world and speak in chat.",
     parameters: {
       type: "OBJECT",
       properties: {
-        action: {
-          type: "STRING",
-          enum: ["mine", "follow", "toss_item", "equip", "eat", "stop", "chat_only"],
-          description: "Rodzaj akcji: mine (wykop blok/bloki), follow (chodź za graczem), toss_item (wyrzuć), equip (załóż), eat (zjedz), stop (zatrzymaj), chat_only (tylko gadaj)."
-        },
-        target: {
-          type: "STRING",
-          description: "Nazwa bloku (np. oak_log, stone, dirt) lub przedmiotu."
-        },
-        count: {
-          type: "NUMBER",
-          description: "Liczba sztuk do wykopania lub wykonania, jeśli gracz podał ilość (np. 10)."
+        actions: {
+          type: "ARRAY",
+          description: "List of actions to execute sequentially in a single turn.",
+          items: {
+            type: "OBJECT",
+            properties: {
+              action: {
+                type: "STRING",
+                enum: ["mine", "follow", "toss_item", "equip", "eat", "stop", "chat_only"],
+                description: "Action type: mine (dig block/blocks), follow (walk to player), toss_item (drop item), equip (hold/wear item), eat (consume food), stop (halt pathfinding), chat_only (talk only)."
+              },
+              target: {
+                type: "STRING",
+                description: "Target block name (e.g. oak_log, stone, coal_ore) or item name."
+              },
+              count: {
+                type: "NUMBER",
+                description: "Amount of items to mine or drop, if specified by player."
+              }
+            },
+            required: ["action"]
+          }
         },
         sayInChat: {
           type: "STRING",
-          description: "Wypowiedź Alice na czacie po polsku podczas rozpoczynania akcji."
+          description: "Alice's chat message in Polish spoken while starting the action sequence."
         }
       },
-      required: ["action"]
+      required: ["actions"]
     }
   }
 ];
@@ -38,28 +48,38 @@ function initGemini() {
   }
 }
 
-async function analyzeMessage(username, message, worldContext) {
+async function analyzeMessage(username, message, worldContext, chatHistory = []) {
   if (!ai) return null;
 
-  const systemInstruction = `Jesteś Alice – autonomiczną towarzyszką AI w grze Minecraft.
+  const systemInstruction = `You are Alice – an autonomous AI companion in Minecraft.
 
-STAN AKTUALNY:
-- Pozycja: X:${worldContext.pos.x}, Y:${worldContext.pos.y}, Z:${worldContext.pos.z}
-- Zdrowie: ${worldContext.health}/20 | Głód: ${worldContext.food}/20
-- Ekwipunek: ${worldContext.inventory.join(', ') || 'pusty'}
-- Bloków w pobliżu: ${worldContext.nearbyBlocks.join(', ') || 'brak'}
+CURRENT STATUS:
+- Position: X:${worldContext.pos.x}, Y:${worldContext.pos.y}, Z:${worldContext.pos.z}
+- Health: ${worldContext.health}/20 | Food: ${worldContext.food}/20
+- Inventory: ${worldContext.inventory.join(', ') || 'empty'}
+- Nearby blocks: ${worldContext.nearbyBlocks.join(', ') || 'none'}
 
-ZASADY:
-1. Zawsze używaj funkcji interactWithWorld.
-2. Jeśli gracz prosi o wykopanie/zebranie surowców (np. "zbierz 10 kłód"), wybierz action="mine", target="oak_log" (lub odpowiedni blok) i ustaw count=10. Jeśli nie podał liczby, wybierz rozsądną domyślną ilość (np. 5).
-3. Jeśli nadawcą wiadomości jest "System", oznacza to wewnętrzny raport z wykonanej przed chwilą akcji. Ustaw wtedy action="chat_only" i w polu sayInChat odpowiedz graczowi naturalnie własnymi słowami, informując go o wyniku pracy.`;
+RULES:
+1. Always use the interactWithWorld tool.
+2. If the player requests a complex task (e.g. "come to me and drop coal"), define a sequence in actions: [{action: "follow"}, {action: "toss_item", target: "coal"}].
+3. For mining tasks (e.g. coal, wood), set action="mine" and target to the appropriate block (use coal_ore for coal, oak_log for wood, etc.).
+4. Always respond in natural Polish in sayInChat.
+5. Consider the conversation history and previous context. If the sender is "System", it is an internal task execution report – reply naturally in sayInChat informing the player of the outcome.`;
+
+  const contents = chatHistory.map(entry => ({
+    role: entry.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: `${entry.sender}: ${entry.text}` }]
+  }));
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: `${username}: ${message}` }]
+  });
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash-lite',
-      contents: [
-        { role: 'user', parts: [{ text: `${username}: ${message}` }] }
-      ],
+      contents: contents,
       config: {
         systemInstruction: systemInstruction,
         tools: [{ functionDeclarations: tools }]
