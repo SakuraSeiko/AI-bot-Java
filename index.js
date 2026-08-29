@@ -5,7 +5,7 @@ const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
 
-// Serwer HTTP dla utrzymania usługi (np. na Render)
+// Serwer HTTP dla utrzymania usługi (np. na Render / Back4App)
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Alice AI Bot Service is active.\n');
@@ -30,6 +30,8 @@ function initBot() {
   // Rejestracja pluginu pathfinder
   bot.loadPlugin(pathfinder);
 
+  let mcData = null;
+
   bot.on('login', () => {
     console.log('[BOT] Successfully logged in to the server.');
   });
@@ -40,7 +42,7 @@ function initBot() {
     
     try {
       const version = bot.version || '1.21';
-      const mcData = require('minecraft-data')(version);
+      mcData = require('minecraft-data')(version);
       if (mcData) {
         const defaultMove = new Movements(bot, mcData);
         bot.pathfinder.setMovements(defaultMove);
@@ -50,6 +52,16 @@ function initBot() {
       console.error('[BOT ERROR] Failed to initialize pathfinder movements:', err.message || err);
     }
   });
+
+  // Funkcja pomocnicza do niezawodnego odnajdywania gracza w świecie
+  function findTargetEntity(username) {
+    if (bot.players[username]?.entity) {
+      return bot.players[username].entity;
+    }
+    return Object.values(bot.entities).find(
+      e => e.type === 'player' && e.username?.toLowerCase() === username.toLowerCase()
+    );
+  }
 
   bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
@@ -76,13 +88,12 @@ function initBot() {
           break;
 
         case 'followPlayer':
-          const target = bot.players[args.targetUsername]?.entity;
+          const target = findTargetEntity(args.targetUsername);
           if (target) {
-            // Podążaj za graczem z zachowaniem odległości 2 bloków
             bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
             bot.chat(`/me Idę za tobą, ${args.targetUsername}!`);
           } else {
-            bot.chat(`/me Nie widzę gracza ${args.targetUsername}.`);
+            bot.chat(`/me Nie widzę Cię w pobliżu, ${args.targetUsername}. Podejdź bliżej!`);
           }
           break;
 
@@ -94,9 +105,43 @@ function initBot() {
         case 'digBlock':
           const block = bot.blockAt(require('vec3')(args.x, args.y, args.z));
           if (block && bot.canDigBlock(block)) {
+            bot.chat(`/me Wykopuję blok: ${block.name}`);
             bot.dig(block).catch(err => console.error('[DIG ERROR]', err));
           } else {
             bot.chat("/me Nie mogę wykopać tego bloku.");
+          }
+          break;
+
+        case 'findAndDigBlock':
+          if (!mcData) {
+            bot.chat("/me Dane świata nie są jeszcze załadowane.");
+            break;
+          }
+          const targetBlockType = mcData.blocksByName[args.blockName];
+          if (!targetBlockType) {
+            bot.chat(`/me Nie znam bloku o nazwie ${args.blockName}.`);
+            break;
+          }
+
+          const foundBlock = bot.findBlock({
+            matching: targetBlockType.id,
+            maxDistance: 32
+          });
+
+          if (foundBlock) {
+            bot.chat(`/me Znalazłam ${args.blockName}, podchodzę i wykopuję!`);
+            bot.pathfinder.setGoal(new goals.GoalGetToBlock(foundBlock.position.x, foundBlock.position.y, foundBlock.position.z));
+            
+            // Wykop po dotarciu
+            const onGoalReached = () => {
+              if (bot.entity.position.distanceTo(foundBlock.position) <= 3) {
+                bot.dig(foundBlock).catch(err => console.error('[DIG ERROR]', err));
+                bot.off('goal_reached', onGoalReached);
+              }
+            };
+            bot.on('goal_reached', onGoalReached);
+          } else {
+            bot.chat(`/me Nie znalazłam w pobliżu bloku ${args.blockName}.`);
           }
           break;
       }
