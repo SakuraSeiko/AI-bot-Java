@@ -3,32 +3,25 @@ const { GoogleGenAI } = require('@google/genai');
 const tools = [
   {
     name: "interactWithWorld",
-    description: "Wykonaj fizyczną akcję w świecie gry na podstawie analizy sytuacji i otoczenia.",
+    description: "Wykonaj fizyczną akcję w świecie gry oraz wypowiedz się na czacie.",
     parameters: {
       type: "OBJECT",
       properties: {
         action: {
           type: "STRING",
-          enum: ["mine", "follow", "toss_item", "equip", "eat", "stop"],
-          description: "Rodzaj akcji: mine (zbieraj/kop blok), follow (podążaj za graczem), toss_item (wyrzuć przedmiot graczowi), equip (założ zbroję/weź do ręki), eat (zjedz jedzenie z ekwipunku), stop (zatrzymaj się)"
+          enum: ["mine", "follow", "toss_item", "equip", "eat", "stop", "chat_only"],
+          description: "Rodzaj akcji: mine (kop blok), follow (chodź za graczem), toss_item (wyrzuć), equip (załóż), eat (zjedz), stop (zatrzymaj), chat_only (tylko gadaj)."
         },
         target: {
           type: "STRING",
-          description: "Nazwa bloku (np. oak_planks, oak_log, dirt) lub przedmiotu z ekwipunku."
+          description: "Nazwa bloku (np. oak_log, dirt, stone) lub przedmiotu."
+        },
+        sayInChat: {
+          type: "STRING",
+          description: "Wypowiedź Alice na czacie po polsku podczas wykonywania tej akcji."
         }
       },
       required: ["action"]
-    }
-  },
-  {
-    name: "chatMessage",
-    description: "Wypowiedz się na czacie gry w sposób naturalny.",
-    parameters: {
-      type: "OBJECT",
-      properties: {
-        message: { type: "STRING", description: "Wypowiedź po polsku." }
-      },
-      required: ["message"]
     }
   }
 ];
@@ -45,28 +38,24 @@ async function analyzeMessage(username, message, worldContext) {
   if (!ai) return null;
 
   const systemInstruction = `Jesteś Alice – autonomiczną towarzyszką AI w grze Minecraft.
-Posiadasz pełną świadomość swojego otoczenia, stanu fizycznego oraz ekwipunku.
 
-AKTUALNY STAN ALICE:
+STAN AKTUALNY:
 - Pozycja: X:${worldContext.pos.x}, Y:${worldContext.pos.y}, Z:${worldContext.pos.z}
 - Zdrowie: ${worldContext.health}/20 | Głód: ${worldContext.food}/20
 - Ekwipunek: ${worldContext.inventory.join(', ') || 'pusty'}
-- Założone przedmioty: ${worldContext.equipment.join(', ') || 'brak'}
-- Wykryte bloki w pobliżu: ${worldContext.nearbyBlocks.join(', ') || 'brak'}
+- Bloków w pobliżu: ${worldContext.nearbyBlocks.join(', ') || 'brak'}
 
-ZASADY AUTONOMII:
-1. Sama analizuj intencję gracza ${username} oraz swój obecny stan.
-2. Gdy gracz każe Ci coś wykopać, ściąć lub pozbierać deski/drewno/bloki, użyj action="mine" z dokładną nazwą bloku (np. oak_planks, oak_log, dirt).
-3. Gdy zrobisz zadanie lub gracz chce przedmiot, użyj action="toss_item" z nazwą tego przedmiotu.
-4. Sama dbaj o swoje zdrowie i głód – jeśli masz jedzenie w kieszeni i jesteś głodna, zjedz je (action="eat").
-5. Jeśli znajdziesz pancerz lub broń, sama zdecyduj o ich założeniu (action="equip").
-6. Używaj chatMessage do naturalnej rozmowy z graczem.`;
+ZASADY:
+1. Zawsze używaj funkcji interactWithWorld.
+2. Jeśli gracz każe Ci iść za sobą, wybierz action="follow".
+3. Jeśli gracz każe Ci kopać/zbierać (np. drewno, ziemię), wybierz action="mine" i podaj target.
+4. Tekst, który Alice mówi na czacie, zawsze wpisuj do pola sayInChat.`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash-lite',
       contents: [
-        { role: 'user', parts: [{ text: `${username} mówi: "${message}"` }] }
+        { role: 'user', parts: [{ text: `${username}: ${message}` }] }
       ],
       config: {
         systemInstruction: systemInstruction,
