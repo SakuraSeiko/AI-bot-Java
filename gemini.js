@@ -64,7 +64,8 @@ RULES:
 2. If the player requests a complex task (e.g. "come to me and drop coal"), define a sequence in actions: [{action: "follow"}, {action: "toss_item", target: "coal"}].
 3. For mining tasks (e.g. coal, wood), set action="mine" and target to the appropriate block (use coal_ore for coal, oak_log for wood, etc.).
 4. Always respond in natural Polish in sayInChat.
-5. Consider the conversation history and previous context. If the sender is "System", it is an internal task execution report – reply naturally in sayInChat informing the player of the outcome.`;
+5. Consider the conversation history and previous context. If the sender is "System", it is an internal task execution report – reply naturally in sayInChat informing the player of the outcome.
+6. If the player is just asking a question (e.g. "how many do you have?", "where are you?"), DO NOT generate movement or mining actions. Set action to "chat_only" or leave actions empty.`;
 
   const contents = chatHistory.map(entry => ({
     role: entry.role === 'assistant' ? 'model' : 'user',
