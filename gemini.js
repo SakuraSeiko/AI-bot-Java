@@ -10,15 +10,19 @@ const tools = [
         action: {
           type: "STRING",
           enum: ["mine", "follow", "toss_item", "equip", "eat", "stop", "chat_only"],
-          description: "Rodzaj akcji: mine (znajdź i wykop blok, np. oak_log, stone, dirt), follow (chodź za graczem), toss_item (wyrzuć), equip (załóż), eat (zjedz), stop (zatrzymaj), chat_only (tylko gadaj)."
+          description: "Rodzaj akcji: mine (wykop blok/bloki), follow (chodź za graczem), toss_item (wyrzuć), equip (załóż), eat (zjedz), stop (zatrzymaj), chat_only (tylko gadaj)."
         },
         target: {
           type: "STRING",
           description: "Nazwa bloku (np. oak_log, stone, dirt) lub przedmiotu."
         },
+        count: {
+          type: "NUMBER",
+          description: "Liczba sztuk do wykopania lub wykonania, jeśli gracz podał ilość (np. 10)."
+        },
         sayInChat: {
           type: "STRING",
-          description: "Wypowiedź Alice na czacie po polsku podczas wykonywania tej akcji."
+          description: "Wypowiedź Alice na czacie po polsku podczas rozpoczynania akcji."
         }
       },
       required: ["action"]
@@ -47,9 +51,8 @@ STAN AKTUALNY:
 
 ZASADY:
 1. Zawsze używaj funkcji interactWithWorld.
-2. Jeśli gracz każe Ci iść za sobą, wybierz action="follow".
-3. Jeśli gracz każe Ci kopać/zbierać (np. drewno, kamień, ziemię), wybierz action="mine" i podaj dokładną angielską nazwę bloku w target (np. oak_log, stone, dirt).
-4. Tekst, który Alice mówi na czacie, zawsze wpisuj do pola sayInChat.`;
+2. Jeśli gracz prosi o wykopanie/zebranie surowców (np. "zbierz 10 kłód"), wybierz action="mine", target="oak_log" (lub odpowiedni blok) i ustaw count=10. Jeśli nie podał liczby, wybierz rozsądną domyślną ilość (np. 5).
+3. Jeśli nadawcą wiadomości jest "System", oznacza to wewnętrzny raport z wykonanej przed chwilą akcji. Ustaw wtedy action="chat_only" i w polu sayInChat odpowiedz graczowi naturalnie własnymi słowami, informując go o wyniku pracy.`;
 
   try {
     const response = await ai.models.generateContent({
