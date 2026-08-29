@@ -43,7 +43,7 @@ function initBot() {
   bot.on('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
     try {
-      // Ładujemy absolutnie WSZYSTKIE kluczowe pluginy
+      // Ładujemy wszystkie pluginy w bezpiecznej kolejności
       bot.loadPlugin(pathfinder);
       bot.loadPlugin(pvp);
       bot.loadPlugin(collectBlock);
@@ -54,7 +54,6 @@ function initBot() {
       defaultMove.allow1by1towers = true;
       bot.pathfinder.setMovements(defaultMove);
 
-      // Konfiguracja auto-jedzenia (żeby dbała o siebie)
       if (bot.autoEat) {
         bot.autoEat.options = {
           priority: 'food',
@@ -63,13 +62,12 @@ function initBot() {
         };
       }
 
-      console.log('[FULL ARSENAL] All plugins loaded and configured!');
+      console.log('[FULL ARSENAL] All PrismarineJS plugins loaded and configured successfully!');
     } catch (e) {
       console.log('[PLUGIN SETUP ERROR]', e.message);
     }
   });
 
-  // Pełny rejestr akcji udostępniający 100% możliwości bota dla AI
   const botActions = {
     async walkTo({ x, y, z }) {
       try {
@@ -170,7 +168,6 @@ function initBot() {
     const botPos = bot.entity ? bot.entity.position : { x: 0, y: 0, z: 0 };
     const sender = username || 'Player';
 
-    // Kontekst środowiskowy dla AI obejmujący stan bota i otoczenie
     const nearbyEntities = Object.values(bot.entities)
       .filter(e => e.position.distanceTo(botPos) < 16 && e !== bot.entity)
       .map(e => `${e.name || e.type} at (${Math.round(e.position.x)}, ${Math.round(e.position.y)}, ${Math.round(e.position.z)})`)
