@@ -20,7 +20,7 @@ const tools = [
     parameters: {
       type: "OBJECT",
       properties: {
-        targetUsername: { type: "STRING", description: "Username of the target player." }
+        targetUsername: { type: "STRING", description: "Username of the target player to follow." }
       },
       required: ["targetUsername"]
     }
@@ -35,7 +35,7 @@ const tools = [
   },
   {
     name: "digBlock",
-    description: "Mine/dig the block located at the given X, Y, Z coordinates.",
+    description: "Mine/dig the block located at the specific X, Y, Z coordinates.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -47,12 +47,23 @@ const tools = [
     }
   },
   {
-    name: "chatMessage",
-    description: "Send a chat message to the in-game server.",
+    name: "findAndDigBlock",
+    description: "Find the nearest block of a specific type (e.g. oak_log, dirt, stone, iron_ore) nearby and go mine it.",
     parameters: {
       type: "OBJECT",
       properties: {
-        message: { type: "STRING", description: "Text message to send" }
+        blockName: { type: "STRING", description: "Technical name of the minecraft block, e.g. oak_log, dirt, stone." }
+      },
+      required: ["blockName"]
+    }
+  },
+  {
+    name: "chatMessage",
+    description: "Send a conversational text message to the in-game server chat.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        message: { type: "STRING", description: "Text message to send in Polish." }
       },
       required: ["message"]
     }
@@ -70,10 +81,23 @@ function initGemini() {
 async function analyzeMessage(username, message, botPos) {
   if (!ai) return null;
 
-  const prompt = `You are an autonomous Minecraft companion bot named Alice. 
-Current location: X:${Math.round(botPos.x)}, Y:${Math.round(botPos.y)}, Z:${Math.round(botPos.z)}.
-Player ${username} said: "${message}". 
-If action (walk, follow, stop, dig, speak) is required, call the appropriate tool. Otherwise reply concisely.`;
+  const currentX = Math.floor(botPos.x);
+  const currentY = Math.floor(botPos.y);
+  const currentZ = Math.floor(botPos.z);
+  const blockBelowY = currentY - 1;
+
+  const prompt = `Jesteś autonomiczną towarzyszką AI o imieniu Alice w grze Minecraft.
+Twoja aktualna pozycja w świecie: X:${currentX}, Y:${currentY}, Z:${currentZ}.
+Blok pod Twoimi stopami znajduje się na współrzędnych: X:${currentX}, Y:${blockBelowY}, Z:${currentZ}.
+
+Gracz ${username} powiedział: "${message}".
+
+ZASADY WYBORU NARZĘDZI:
+1. Jeśli gracz prosi Cię o podążanie/chodzenie za nim (np. "chodź za mną", "podążaj za mną", "idź do mnie"), MUSISZ wywołać funkcję followPlayer z argumentem targetUsername="${username}". NIE UŻYWAJ chatMessage!
+2. Jeśli gracz prosi Cię o zatrzymanie się, wywołaj stopMovement.
+3. Jeśli gracz prosi Cię o wykopanie bloku pod sobą, wywołaj digBlock z X:${currentX}, Y:${blockBelowY}, Z:${currentZ}.
+4. Jeśli gracz prosi o pozbieranie/ścięcie drewna, kamienia lub konkretnego bloku w okolicy, wywołaj findAndDigBlock z odpowiednią nazwą (np. blockName="oak_log" dla drewna).
+5. Funkcji chatMessage używaj TYLKO do czystej rozmowy, odpowiadania na pytania lub gdy polecenie nie wymaga wykonania żadnej akcji fizycznej.`;
 
   try {
     const response = await ai.models.generateContent({
