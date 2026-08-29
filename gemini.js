@@ -3,7 +3,7 @@ const { GoogleGenAI } = require('@google/genai');
 const tools = [
   {
     name: "walkTo",
-    description: "Walk to specific X, Y, Z coordinates in the world.",
+    description: "Navigate safely to specific X, Y, Z coordinates using pathfinding.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -16,13 +16,21 @@ const tools = [
   },
   {
     name: "followPlayer",
-    description: "Walk directly to a specific player.",
+    description: "Follow a specific player continuously using pathfinding.",
     parameters: {
       type: "OBJECT",
       properties: {
         targetUsername: { type: "STRING", description: "Username of the target player." }
       },
       required: ["targetUsername"]
+    }
+  },
+  {
+    name: "stopMovement",
+    description: "Stop moving or following immediately.",
+    parameters: {
+      type: "OBJECT",
+      properties: {}
     }
   },
   {
@@ -65,7 +73,7 @@ async function analyzeMessage(username, message, botPos) {
   const prompt = `You are an autonomous Minecraft companion bot named Alice. 
 Current location: X:${Math.round(botPos.x)}, Y:${Math.round(botPos.y)}, Z:${Math.round(botPos.z)}.
 Player ${username} said: "${message}". 
-If action (walk, follow, dig, speak) is required, call the appropriate tool. Otherwise reply concisely.`;
+If action (walk, follow, stop, dig, speak) is required, call the appropriate tool. Otherwise reply concisely.`;
 
   try {
     const response = await ai.models.generateContent({
