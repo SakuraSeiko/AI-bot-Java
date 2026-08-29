@@ -29,18 +29,11 @@ function initBot() {
     version: '1.21'
   });
 
-  // Interceptor eventów fizyki naprawiający konflikt starego i nowego Mineflayera
-  const originalEmit = bot.emit;
-  bot.emit = function(event, ...args) {
-    if (event === 'physicTick') {
-      originalEmit.call(this, 'physicsTick', ...args);
-    }
-    return originalEmit.call(this, event, ...args);
-  };
-
+  // Bezpieczne przekazanie ticku dla starszych pluginów bez zapętlania stosu
   bot.on('physicsTick', () => {
-    // Zapewnienie ciągłości pętli dla pluginów korzystających ze starego eventu
-    bot.emit('physicTick');
+    bot.listeners('physicTick').forEach(listener => {
+      listener();
+    });
   });
 
   // Ładowanie pluginów
