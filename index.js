@@ -1,7 +1,6 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const collectBlock = require('mineflayer-collectblock').plugin;
 const toolPlugin = require('mineflayer-tool').plugin;
 const { initGemini, analyzeMessage } = require('./gemini');
 
@@ -28,9 +27,8 @@ function initBot() {
     version: '1.21'
   });
 
-  // Ładowanie pluginów (pathfinder, collectblock, tool) z pominięciem pvp
+  // Ładowanie wyłącznie stabilnych pluginów bazowych
   bot.loadPlugin(pathfinder);
-  bot.loadPlugin(collectBlock);
   bot.loadPlugin(toolPlugin);
 
   let mcData = null;
@@ -150,15 +148,25 @@ function initBot() {
             const blockKw = (target || '').toLowerCase();
             const targetBlock = bot.findBlock({
               matching: (b) => b && b.name !== 'air' && b.name.toLowerCase().includes(blockKw),
-              maxDistance: 16
+              maxDistance: 32
             });
 
             if (targetBlock) {
-              bot.collectBlock.collect(targetBlock, (err) => {
-                if (err) console.error('[COLLECT ERROR]', err);
+              console.log(`[BOT] Moving to block ${targetBlock.name} at ${targetBlock.position}`);
+              bot.pathfinder.setGoal(new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z), true);
+              
+              bot.pathfinder.once('goal_reached', () => {
+                const freshBlock = bot.blockAt(targetBlock.position);
+                if (freshBlock && freshBlock.name !== 'air') {
+                  console.log(`[BOT] Digging block: ${freshBlock.name}`);
+                  bot.dig(freshBlock, (err) => {
+                    if (err) console.error('[DIG ERROR]', err.message || err);
+                    else console.log('[BOT] Block mined successfully.');
+                  });
+                }
               });
             } else {
-              bot.chat(`/me Nie widzę w okolicy "${target}".`);
+              bot.chat(`/me Nie widzę w okolicy niczego pasującego do "${target}".`);
             }
             break;
 
