@@ -1,99 +1,53 @@
-import { GoogleGenAI } from '@google/genai';
+const { GoogleGenAI } = require('@google/genai');
 
 const tools = [
   {
-    functionDeclarations: [
-      {
-        name: "walkTo",
-        description: "Walk precisely to specific X, Y, Z coordinates using advanced pathfinding.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            x: { type: "NUMBER", description: "X coordinate" },
-            y: { type: "NUMBER", description: "Y coordinate" },
-            z: { type: "NUMBER", description: "Z coordinate" }
-          },
-          required: ["x", "y", "z"]
-        }
+    name: "walkTo",
+    description: "Walk to specific X, Y, Z coordinates in the world.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        x: { type: "NUMBER", description: "X coordinate" },
+        y: { type: "NUMBER", description: "Y coordinate" },
+        z: { type: "NUMBER", description: "Z coordinate" }
       },
-      {
-        name: "followPlayer",
-        description: "Dynamically follow a specific player across the world.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            targetUsername: { type: "STRING", description: "Username of the target player." }
-          },
-          required: ["targetUsername"]
-        }
+      required: ["x", "y", "z"]
+    }
+  },
+  {
+    name: "followPlayer",
+    description: "Walk directly to a specific player.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        targetUsername: { type: "STRING", description: "Username of the target player." }
       },
-      {
-        name: "stopEverything",
-        description: "Halt all movement, pathfinding, collection, and combat immediately.",
-        parameters: { type: "OBJECT", properties: {} }
+      required: ["targetUsername"]
+    }
+  },
+  {
+    name: "digBlock",
+    description: "Mine/dig the block located at the given X, Y, Z coordinates.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        x: { type: "NUMBER", description: "Block X coordinate" },
+        y: { type: "NUMBER", description: "Block Y coordinate" },
+        z: { type: "NUMBER", description: "Block Z coordinate" }
       },
-      {
-        name: "lookAtCoords",
-        description: "Direct camera view towards specific coordinates.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            x: { type: "NUMBER" }, y: { type: "NUMBER" }, z: { type: "NUMBER" }
-          },
-          required: ["x", "y", "z"]
-        }
+      required: ["x", "y", "z"]
+    }
+  },
+  {
+    name: "chatMessage",
+    description: "Send a chat message to the in-game server.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        message: { type: "STRING", description: "Text message to send" }
       },
-      {
-        name: "findAndCollect",
-        description: "Automatically find a block type nearby and mine/collect it into inventory.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            blockName: { type: "STRING", description: "Minecraft block name (e.g. 'oak_log', 'stone', 'iron_ore')" }
-          },
-          required: ["blockName"]
-        }
-      },
-      {
-        name: "attackMob",
-        description: "Engage in PvP combat against a nearby mob or entity.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            mobName: { type: "STRING", description: "Name of the mob (e.g. 'zombie', 'skeleton', 'creeper')" }
-          },
-          required: ["mobName"]
-        }
-      },
-      {
-        name: "listInventory",
-        description: "Check current inventory items and quantities.",
-        parameters: { type: "OBJECT", properties: {} }
-      },
-      {
-        name: "equipItem",
-        description: "Equip an item from inventory to hand or armor slots.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            itemName: { type: "STRING", description: "Name or part of item name" },
-            destination: { type: "STRING", description: "Slot type: 'hand', 'head', 'torso', 'legs', 'feet', 'off-hand'" }
-          },
-          required: ["itemName"]
-        }
-      },
-      {
-        name: "chatMessage",
-        description: "Send a chat message to the server.",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            message: { type: "STRING" }
-          },
-          required: ["message"]
-        }
-      }
-    ]
+      required: ["message"]
+    }
   }
 ];
 
@@ -105,29 +59,28 @@ function initGemini() {
   }
 }
 
-async function analyzeMessage(username, message, env) {
+async function analyzeMessage(username, message, botPos) {
   if (!ai) return null;
 
-  const prompt = `You are Alice, an autonomous, fully integrated Minecraft companion bot with access to pathfinding, combat, collection, and survival plugins.
-Status -> Pos: X:${Math.round(env.position.x)} Y:${Math.round(env.position.y)} Z:${Math.round(env.position.z)} | HP: ${env.health} | Food: ${env.food}
-Inventory: ${env.inventorySummary}
-Nearby entities: ${env.nearby}
-
-Player ${username} said: "${message}".
-Evaluate what action is needed (movement, collection, combat, inventory management, or chat reply) and call the corresponding tool.`;
+  const prompt = `You are an autonomous Minecraft companion bot named Alice. 
+Current location: X:${Math.round(botPos.x)}, Y:${Math.round(botPos.y)}, Z:${Math.round(botPos.z)}.
+Player ${username} said: "${message}". 
+If action (walk, follow, dig, speak) is required, call the appropriate tool. Otherwise reply concisely.`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash-lite',
       contents: prompt,
-      config: { tools: tools }
+      config: {
+        tools: [{ functionDeclarations: tools }]
+      }
     });
 
-    const functionCalls = response.functionCalls;
-    if (functionCalls && functionCalls.length > 0) {
-      return { type: 'function', action: functionCalls[0] };
+    const calls = response.functionCalls;
+    if (calls && calls.length > 0) {
+      return { type: 'function', action: calls[0] };
     }
-
+    
     return { type: 'text', text: response.text };
   } catch (err) {
     console.error('[GEMINI ERROR]', err.message || err);
@@ -135,4 +88,4 @@ Evaluate what action is needed (movement, collection, combat, inventory manageme
   }
 }
 
-export { initGemini, analyzeMessage };
+module.exports = { initGemini, analyzeMessage };
