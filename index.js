@@ -29,14 +29,7 @@ function initBot() {
     version: '1.21'
   });
 
-  // Bezpieczne przekazanie ticku dla starszych pluginów bez zapętlania stosu
-  bot.on('physicsTick', () => {
-    bot.listeners('physicTick').forEach(listener => {
-      listener();
-    });
-  });
-
-  // Ładowanie pluginów
+  // Ładowanie pluginów bez ingerencji w pętlę ticków
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(collectBlock);
   bot.loadPlugin(toolPlugin);
