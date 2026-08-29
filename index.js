@@ -34,12 +34,21 @@ function initBot() {
     console.log('[BOT] Successfully logged in to the server.');
   });
 
-  bot.on('spawn', () => {
+  // Używamy .once, aby wykonać inicjalizację fizyki tylko raz przy pierwszym spawnie
+  bot.once('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
-    // Inicjalizacja siatki ruchów po sprawnym wczytaniu świata i danych o wersjach
-    const mcData = require('minecraft-data')(bot.version);
-    const defaultMove = new movements.Pathfinder(bot, mcData);
-    bot.pathfinder.setMovements(defaultMove);
+    
+    try {
+      const version = bot.version || '1.21';
+      const mcData = require('minecraft-data')(version);
+      if (mcData) {
+        const defaultMove = new movements.Pathfinder(bot, mcData);
+        bot.pathfinder.setMovements(defaultMove);
+        console.log('[BOT] Pathfinder movements initialized successfully.');
+      }
+    } catch (err) {
+      console.error('[BOT ERROR] Failed to initialize pathfinder movements:', err.message || err);
+    }
   });
 
   bot.on('chat', async (username, message) => {
@@ -69,7 +78,7 @@ function initBot() {
         case 'followPlayer':
           const target = bot.players[args.targetUsername]?.entity;
           if (target) {
-            // Podążaj za graczem, zatrzymując się 2 bloki przed nim
+            // Podążaj za graczem z zachowaniem odległości 2 bloków
             bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
             bot.chat(`/me Idę za tobą, ${args.targetUsername}!`);
           } else {
