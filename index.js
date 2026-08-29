@@ -2,7 +2,6 @@ const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const toolPlugin = require('mineflayer-tool').plugin;
-const pvp = require('mineflayer-pvp').plugin;
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -28,10 +27,9 @@ function initBot() {
     version: '1.21'
   });
 
-  // Ładowanie pluginów (bez collectblock)
+  // Ładowanie wyłącznie pathfindera i narzędzi
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(toolPlugin);
-  bot.loadPlugin(pvp);
 
   let mcData = null;
 
