@@ -27,11 +27,19 @@ function initBot() {
     version: '1.21'
   });
 
-  // Ładowanie wyłącznie stabilnych pluginów bazowych
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(toolPlugin);
 
   let mcData = null;
+  const chatHistory = [];
+  const MAX_HISTORY = 50;
+
+  function pushToHistory(role, sender, text) {
+    chatHistory.push({ role, sender, text });
+    if (chatHistory.length > MAX_HISTORY) {
+      chatHistory.shift();
+    }
+  }
 
   bot.on('login', () => {
     console.log('[BOT] Successfully logged in to the server.');
@@ -96,8 +104,9 @@ function initBot() {
     return equipped;
   }
 
-  // Funkcja wysyłająca niewidoczny raport z wykonanego zadania do umysłu Alice
   async function internalThought(thoughtMessage) {
+    pushToHistory('user', 'System', thoughtMessage);
+
     const worldContext = {
       pos: {
         x: Math.floor(bot.entity.position.x),
@@ -111,19 +120,130 @@ function initBot() {
       nearbyBlocks: getNearbyBlockNames()
     };
 
-    const thoughtResult = await analyzeMessage('System', thoughtMessage, worldContext);
+    const thoughtResult = await analyzeMessage('System', thoughtMessage, worldContext, chatHistory);
     
+    let botReply = '';
     if (thoughtResult && thoughtResult.type === 'text') {
-      bot.chat(`/me ${thoughtResult.text}`);
+      botReply = thoughtResult.text;
     } else if (thoughtResult && thoughtResult.type === 'function' && thoughtResult.action.args.sayInChat) {
-      bot.chat(`/me ${thoughtResult.action.args.sayInChat}`);
+      botReply = thoughtResult.action.args.sayInChat;
+    }
+
+    if (botReply) {
+      bot.chat(`/me ${botReply}`);
+      pushToHistory('assistant', 'Alice', botReply);
+    }
+  }
+
+  async function executeSingleAction(actionObj, username) {
+    const { action, target, count } = actionObj;
+    console.log(`[EXECUTE ACTION] Type: ${action}, Target: ${target}, Count: ${count}`);
+
+    switch (action) {
+      case 'follow':
+        const playerToFollow = findTargetEntity(username);
+        if (playerToFollow) {
+          bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        } else {
+          bot.chat('/me Cannot find you nearby.');
+        }
+        break;
+
+      case 'stop':
+        bot.pathfinder.setGoal(null);
+        break;
+
+      case 'mine':
+        const blockKw = (target || '').toLowerCase();
+        const targetCount = Number(count) || 5;
+        let minedCount = 0;
+
+        for (let i = 0; i < targetCount; i++) {
+          const targetBlock = bot.findBlock({
+            matching: (b) => b && b.name !== 'air' && b.name.toLowerCase().includes(blockKw),
+            maxDistance: 32
+          });
+
+          if (!targetBlock) break;
+
+          console.log(`[MINING] Targeting block ${targetBlock.name} at position ${targetBlock.position} (${i + 1}/${targetCount})`);
+          const defaultGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
+
+          try {
+            await bot.pathfinder.goto(defaultGoal);
+            const freshBlock = bot.blockAt(targetBlock.position);
+            if (freshBlock && freshBlock.name !== 'air') {
+              if (bot.tool && bot.tool.equipForBlock) {
+                await bot.tool.equipForBlock(freshBlock);
+              }
+              await bot.dig(freshBlock);
+              minedCount++;
+            }
+          } catch (err) {
+            console.error('[MINE ERROR]', err.message || err);
+            break;
+          }
+        }
+
+        if (minedCount === 0) {
+          await internalThought(`Attempted to mine ${target}, but could not find any matching block nearby.`);
+        } else if (minedCount < targetCount) {
+          await internalThought(`Finished mining. Mined ${minedCount} out of requested ${targetCount} blocks of ${target}.`);
+        } else {
+          await internalThought(`Successfully finished mining task! Mined all ${targetCount} blocks of ${target}.`);
+        }
+        break;
+
+      case 'toss_item':
+        const itemKw = (target || '').toLowerCase();
+        const itemToDrop = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemKw));
+        if (itemToDrop) {
+          try {
+            await bot.tossStack(itemToDrop);
+            await internalThought(`Successfully dropped item ${itemToDrop.name} on the ground.`);
+          } catch (err) {
+            console.error('[TOSS ERROR]', err.message || err);
+          }
+        } else {
+          await internalThought(`Wanted to drop ${target}, but it was not found in inventory.`);
+        }
+        break;
+
+      case 'eat':
+        const foodKw = (target || '').toLowerCase();
+        const foodItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(foodKw));
+        if (foodItem) {
+          try {
+            await bot.equip(foodItem, 'hand');
+            await bot.consume();
+            await internalThought(`Successfully ate ${foodItem.name}.`);
+          } catch (err) {
+            console.error('[EAT ERROR]', err.message || err);
+          }
+        }
+        break;
+
+      case 'equip':
+        const gearKw = (target || '').toLowerCase();
+        const gearItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(gearKw));
+        if (gearItem) {
+          try {
+            await bot.equip(gearItem, 'hand');
+            await internalThought(`Equipped ${gearItem.name} in main hand.`);
+          } catch (err) {
+            console.error('[EQUIP ERROR]', err.message || err);
+          }
+        }
+        break;
     }
   }
 
   bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
 
-    console.log(`[CHAT] ${username}: ${message}`);
+    console.log(`[CHAT INCOMING] ${username}: ${message}`);
+    pushToHistory('user', username, message);
 
     const worldContext = {
       pos: {
@@ -138,118 +258,28 @@ function initBot() {
       nearbyBlocks: getNearbyBlockNames()
     };
 
-    const result = await analyzeMessage(username, message, worldContext);
+    const result = await analyzeMessage(username, message, worldContext, chatHistory);
     if (!result) return;
 
     if (result.type === 'text') {
       bot.chat(`/me ${result.text}`);
+      pushToHistory('assistant', 'Alice', result.text);
     } else if (result.type === 'function') {
       const { name, args } = result.action;
-      console.log(`[ACTION] Executing ${name} with args:`, args);
+      console.log(`[ACTION CALL] Executing ${name} with arguments:`, args);
 
       if (name === 'interactWithWorld') {
-        const { action, target, count, sayInChat } = args;
+        const { actions, sayInChat } = args;
 
         if (sayInChat) {
           bot.chat(`/me ${sayInChat}`);
+          pushToHistory('assistant', 'Alice', sayInChat);
         }
 
-        switch (action) {
-          case 'follow':
-            const playerToFollow = findTargetEntity(username);
-            if (playerToFollow) {
-              bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
-            } else {
-              bot.chat('/me Nie widzę Cię w pobliżu.');
-            }
-            break;
-
-          case 'stop':
-            bot.pathfinder.setGoal(null);
-            break;
-
-          case 'mine':
-            const blockKw = (target || '').toLowerCase();
-            const targetCount = Number(count) || 5;
-
-            async function mineMultiple() {
-              let minedCount = 0;
-
-              for (let i = 0; i < targetCount; i++) {
-                const targetBlock = bot.findBlock({
-                  matching: (b) => b && b.name !== 'air' && b.name.toLowerCase().includes(blockKw),
-                  maxDistance: 32
-                });
-
-                if (!targetBlock) {
-                  break;
-                }
-
-                console.log(`[BOT] Moving to block ${targetBlock.name} at ${targetBlock.position} (${i + 1}/${targetCount})`);
-                const defaultGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
-
-                try {
-                  await bot.pathfinder.goto(defaultGoal);
-                  const freshBlock = bot.blockAt(targetBlock.position);
-                  if (freshBlock && freshBlock.name !== 'air') {
-                    if (bot.tool && bot.tool.equipForBlock) {
-                      await bot.tool.equipForBlock(freshBlock);
-                    }
-                    console.log(`[BOT] Digging block: ${freshBlock.name}`);
-                    await bot.dig(freshBlock);
-                    minedCount++;
-                  }
-                } catch (err) {
-                  console.error('[MINE ERROR]', err.message || err);
-                  break;
-                }
-              }
-
-              // Pętla zwrotna do Gemini po zakończeniu zadania
-              if (minedCount === 0) {
-                await internalThought(`Próbowałaś wykopać ${blockKw}, ale nie znalazłaś żadnego takiego bloku w pobliżu. Poinformuj o tym gracza.`);
-              } else if (minedCount < targetCount) {
-                await internalThought(`Zakończyłaś kopanie. Chciałaś wykopać ${targetCount} sztuk ${blockKw}, ale w okolicy było tylko ${minedCount}. Poinformuj gracza o wyniku.`);
-              } else {
-                await internalThought(`Zakończyłaś sukcesem! Wykopałaś dokładnie zaplanowane ${targetCount} sztuk ${blockKw}. Poinformuj o tym gracza.`);
-              }
-            }
-
-            mineMultiple();
-            break;
-
-          case 'toss_item':
-            const itemKw = (target || '').toLowerCase();
-            const itemToDrop = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemKw));
-            if (itemToDrop) {
-              bot.tossStack(itemToDrop)
-                .then(() => internalThought(`Właśnie wyrzuciłaś przedmiot ${itemToDrop.name} na ziemię. Daj znać graczowi.`))
-                .catch(err => console.error('[TOSS ERROR]', err));
-            } else {
-              internalThought(`Chciałaś wyrzucić ${target}, ale nie masz tego w ekwipunku.`);
-            }
-            break;
-
-          case 'eat':
-            const foodKw = (target || '').toLowerCase();
-            const foodItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(foodKw));
-            if (foodItem) {
-              bot.equip(foodItem, 'hand')
-                .then(() => bot.consume())
-                .then(() => internalThought(`Właśnie zjadłaś ${foodItem.name}. Skomentuj to krótko na czacie.`))
-                .catch(err => console.error('[EAT ERROR]', err));
-            }
-            break;
-
-          case 'equip':
-            const gearKw = (target || '').toLowerCase();
-            const gearItem = bot.inventory.items().find(i => i.name.toLowerCase().includes(gearKw));
-            if (gearItem) {
-              bot.equip(gearItem, 'hand')
-                .then(() => internalThought(`Założyłaś/wzięłaś do ręki ${gearItem.name}. Poinformuj gracza.`))
-                .catch(err => console.error('[EQUIP ERROR]', err));
-            }
-            break;
+        if (actions && Array.isArray(actions)) {
+          for (const actionObj of actions) {
+            await executeSingleAction(actionObj, username);
+          }
         }
       }
     }
@@ -260,7 +290,7 @@ function initBot() {
   });
 
   bot.on('end', (reason) => {
-    console.log(`[BOT] Disconnected (${reason}). Reconnecting in 10 seconds...`);
+    console.log(`[BOT DISCONNECTED] Reason: ${reason}. Reconnecting in 10 seconds...`);
     setTimeout(initBot, 10000);
   });
 }
