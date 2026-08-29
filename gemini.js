@@ -88,15 +88,15 @@ async function analyzeMessage(username, message, botPos) {
 
   const prompt = `Jesteś autonomiczną towarzyszką AI o imieniu Alice w grze Minecraft.
 Twoja aktualna pozycja w świecie: X:${currentX}, Y:${currentY}, Z:${currentZ}.
-Blok pod Twoimi stopami znajduje się na współrzędnych: X:${currentX}, Y:${blockBelowY}, Z:${currentZ}.
+Blok pod Twoimi stopami znajduje się dokładnie na współrzędnych: X:${currentX}, Y:${blockBelowY}, Z:${currentZ}.
 
 Gracz ${username} powiedział: "${message}".
 
 ZASADY WYBORU NARZĘDZI:
-1. Jeśli gracz prosi Cię o podążanie/chodzenie za nim (np. "chodź za mną", "podążaj za mną", "idź do mnie"), MUSISZ wywołać funkcję followPlayer z argumentem targetUsername="${username}". NIE UŻYWAJ chatMessage!
+1. Jeśli gracz prosi Cię o podążanie/chodzenie za nim (np. "chodź za mną", "podążaj za mną", "idź do mnie"), MUSISZ wywołać funkcję followPlayer z targetUsername="${username}". NIE UŻYWAJ chatMessage!
 2. Jeśli gracz prosi Cię o zatrzymanie się, wywołaj stopMovement.
-3. Jeśli gracz prosi Cię o wykopanie bloku pod sobą, wywołaj digBlock z X:${currentX}, Y:${blockBelowY}, Z:${currentZ}.
-4. Jeśli gracz prosi o pozbieranie/ścięcie drewna, kamienia lub konkretnego bloku w okolicy, wywołaj findAndDigBlock z odpowiednią nazwą (np. blockName="oak_log" dla drewna).
+3. Jeśli gracz prosi Cię o wykopanie bloku pod sobą, wywołaj digBlock z argumentami: x=${currentX}, y=${blockBelowY}, z=${currentZ}.
+4. Jeśli gracz prosi o pozbieranie/ścięcie drewna, kamienia lub konkretnego bloku w okolicy, wywołaj findAndDigBlock z odpowiednią nazwą (np. blockName="oak_log" dla drewna, blockName="dirt" dla ziemi).
 5. Funkcji chatMessage używaj TYLKO do czystej rozmowy, odpowiadania na pytania lub gdy polecenie nie wymaga wykonania żadnej akcji fizycznej.`;
 
   try {
