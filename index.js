@@ -1,5 +1,6 @@
 const http = require('http');
 const mineflayer = require('mineflayer');
+const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -26,12 +27,19 @@ function initBot() {
     version: '1.21'
   });
 
+  // Rejestracja pluginu pathfinder
+  bot.loadPlugin(pathfinder);
+
   bot.on('login', () => {
     console.log('[BOT] Successfully logged in to the server.');
   });
 
   bot.on('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
+    // Inicjalizacja siatki ruchów po sprawnym wczytaniu świata i danych o wersjach
+    const mcData = require('minecraft-data')(bot.version);
+    const defaultMove = new movements.Pathfinder(bot, mcData);
+    bot.pathfinder.setMovements(defaultMove);
   });
 
   bot.on('chat', async (username, message) => {
@@ -48,32 +56,38 @@ function initBot() {
       const { name, args } = result.action;
       console.log(`[ACTION] Executing ${name} with args:`, args);
 
-      // Podstawowa obsługa natywnych akcji Mineflayera (bez zewnętrznych pluginów)
       switch (name) {
         case 'chatMessage':
           if (args.message) bot.chat(`/me ${args.message}`);
           break;
+
         case 'walkTo':
-          bot.lookAt(require('vec3')(args.x, args.y, args.z));
-          bot.setControlState('forward', true);
-          setTimeout(() => bot.setControlState('forward', false), 2000);
+          bot.pathfinder.setGoal(new goals.GoalBlock(args.x, args.y, args.z));
+          bot.chat(`/me Idę na współrzędne X:${args.x} Y:${args.y} Z:${args.z}`);
           break;
+
         case 'followPlayer':
           const target = bot.players[args.targetUsername]?.entity;
           if (target) {
-            bot.lookAt(target.position.offset(0, 1.6, 0));
-            bot.setControlState('forward', true);
-            setTimeout(() => bot.setControlState('forward', false), 2000);
+            // Podążaj za graczem, zatrzymując się 2 bloki przed nim
+            bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
+            bot.chat(`/me Idę za tobą, ${args.targetUsername}!`);
           } else {
-            bot.chat(`/me I can't see ${args.targetUsername}.`);
+            bot.chat(`/me Nie widzę gracza ${args.targetUsername}.`);
           }
           break;
+
+        case 'stopMovement':
+          bot.pathfinder.setGoal(null);
+          bot.chat('/me Zatrzymałam się.');
+          break;
+
         case 'digBlock':
           const block = bot.blockAt(require('vec3')(args.x, args.y, args.z));
           if (block && bot.canDigBlock(block)) {
             bot.dig(block).catch(err => console.error('[DIG ERROR]', err));
           } else {
-            bot.chat("/me I cannot dig that block.");
+            bot.chat("/me Nie mogę wykopać tego bloku.");
           }
           break;
       }
