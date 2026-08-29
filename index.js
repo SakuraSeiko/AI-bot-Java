@@ -31,6 +31,7 @@ function initBot() {
   bot.loadPlugin(toolPlugin);
 
   let mcData = null;
+  let isProcessing = false;
   const chatHistory = [];
   const MAX_HISTORY = 50;
 
@@ -130,7 +131,7 @@ function initBot() {
     }
 
     if (botReply) {
-      bot.chat(`/me ${botReply}`);
+      console.log(`[INTERNAL THOUGHT LOGGED] ${botReply}`);
       pushToHistory('assistant', 'Alice', botReply);
     }
   }
@@ -236,12 +237,16 @@ function initBot() {
           }
         }
         break;
+
+      case 'chat_only':
+        break;
     }
   }
 
   bot.on('chat', async (username, message) => {
-    if (username === bot.username) return;
+    if (username === bot.username || isProcessing) return;
 
+    isProcessing = true;
     console.log(`[CHAT INCOMING] ${username}: ${message}`);
     pushToHistory('user', username, message);
 
@@ -258,30 +263,36 @@ function initBot() {
       nearbyBlocks: getNearbyBlockNames()
     };
 
-    const result = await analyzeMessage(username, message, worldContext, chatHistory);
-    if (!result) return;
+    try {
+      const result = await analyzeMessage(username, message, worldContext, chatHistory);
+      if (result) {
+        if (result.type === 'text') {
+          bot.chat(`/me ${result.text}`);
+          pushToHistory('assistant', 'Alice', result.text);
+        } else if (result.type === 'function') {
+          const { name, args } = result.action;
+          console.log(`[ACTION CALL] Executing ${name} with arguments:`, args);
 
-    if (result.type === 'text') {
-      bot.chat(`/me ${result.text}`);
-      pushToHistory('assistant', 'Alice', result.text);
-    } else if (result.type === 'function') {
-      const { name, args } = result.action;
-      console.log(`[ACTION CALL] Executing ${name} with arguments:`, args);
+          if (name === 'interactWithWorld') {
+            const { actions, sayInChat } = args;
 
-      if (name === 'interactWithWorld') {
-        const { actions, sayInChat } = args;
+            if (sayInChat) {
+              bot.chat(`/me ${sayInChat}`);
+              pushToHistory('assistant', 'Alice', sayInChat);
+            }
 
-        if (sayInChat) {
-          bot.chat(`/me ${sayInChat}`);
-          pushToHistory('assistant', 'Alice', sayInChat);
-        }
-
-        if (actions && Array.isArray(actions)) {
-          for (const actionObj of actions) {
-            await executeSingleAction(actionObj, username);
+            if (actions && Array.isArray(actions)) {
+              for (const actionObj of actions) {
+                await executeSingleAction(actionObj, username);
+              }
+            }
           }
         }
       }
+    } catch (err) {
+      console.error('[CHAT ERROR]', err.message || err);
+    } finally {
+      isProcessing = false;
     }
   });
 
