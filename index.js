@@ -36,35 +36,36 @@ function initBot() {
     version: '1.21'
   });
 
+  // Ładujemy pluginy OD RAZU po utworzeniu bota (zgodnie ze standardem PrismarineJS)
+  try {
+    bot.loadPlugin(pathfinder);
+    bot.loadPlugin(pvp);
+    bot.loadPlugin(collectBlock);
+    bot.loadPlugin(autoEat);
+    bot.loadPlugin(armorManager);
+    console.log('[FULL ARSENAL] All PrismarineJS plugins loaded successfully!');
+  } catch (e) {
+    console.log('[PLUGIN LOAD ERROR]', e.message);
+  }
+
   bot.on('login', () => {
     console.log('[BOT] Successfully logged in to the server.');
   });
 
   bot.on('spawn', () => {
     console.log('[BOT] Alice spawned in the world.');
-    try {
-      // Ładujemy wszystkie pluginy w bezpiecznej kolejności
-      bot.loadPlugin(pathfinder);
-      bot.loadPlugin(pvp);
-      bot.loadPlugin(collectBlock);
-      bot.loadPlugin(autoEat);
-      bot.loadPlugin(armorManager);
+    
+    // Konfiguracja ruchów i mechanik po pojawieniu się w świecie
+    const defaultMove = new Movements(bot);
+    defaultMove.allow1by1towers = true;
+    bot.pathfinder.setMovements(defaultMove);
 
-      const defaultMove = new Movements(bot);
-      defaultMove.allow1by1towers = true;
-      bot.pathfinder.setMovements(defaultMove);
-
-      if (bot.autoEat) {
-        bot.autoEat.options = {
-          priority: 'food',
-          startEating: 14,
-          bannedFood: []
-        };
-      }
-
-      console.log('[FULL ARSENAL] All PrismarineJS plugins loaded and configured successfully!');
-    } catch (e) {
-      console.log('[PLUGIN SETUP ERROR]', e.message);
+    if (bot.autoEat) {
+      bot.autoEat.options = {
+        priority: 'food',
+        startEating: 14,
+        bannedFood: []
+      };
     }
   });
 
