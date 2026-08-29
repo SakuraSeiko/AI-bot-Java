@@ -29,6 +29,11 @@ function initBot() {
     version: '1.21'
   });
 
+  // Zastąpienie starego eventu physicTick przez physicsTick dla wewnętrznych pluginów
+  bot.on('physicsTick', () => {
+    bot.emit('physicTick');
+  });
+
   // Ładowanie pluginów
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(collectBlock);
