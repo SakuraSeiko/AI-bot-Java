@@ -25,7 +25,7 @@ function initBot() {
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
     username: 'Alice',
-    version: '1.21'
+    version: '26.1'
   });
 
   bot.loadPlugin(pathfinder);
