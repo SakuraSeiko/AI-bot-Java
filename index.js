@@ -2,6 +2,7 @@ const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const toolPlugin = require('mineflayer-tool').plugin;
+const Vec3 = require('vec3');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -336,7 +337,7 @@ function initBot() {
             await bot.equip(itemToPlace, 'hand');
             const referenceBlock = bot.blockAt(bot.entity.position.offset(0, -1, 1));
             if (referenceBlock) {
-              await bot.placeBlock(referenceBlock, new mineflayer.vec3(0, 1, 0));
+              await bot.placeBlock(referenceBlock, new Vec3(0, 1, 0));
               await internalThought(`Placed block ${itemToPlace.name} on the ground.`);
             }
           } catch (err) {
