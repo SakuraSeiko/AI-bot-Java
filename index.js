@@ -304,25 +304,34 @@ function initBot() {
         const craftCount = Number(count) || 1;
 
         if (mcData) {
-          const itemRecipe = mcData.recipesByName[recipeKw] || Object.keys(mcData.recipesByName)
-            .filter(k => k.includes(recipeKw))
-            .map(k => mcData.recipesByName[k])[0];
+          const itemInfo = mcData.itemsByName[recipeKw] || mcData.blocksByName[recipeKw];
 
-          if (itemRecipe && itemRecipe[0]) {
-            try {
-              const recipe = itemRecipe[0];
-              const craftingTable = bot.findBlock({
-                matching: b => b && b.name === 'crafting_table',
-                maxDistance: 5
-              });
-              await bot.craft(recipe, craftCount, craftingTable);
-              await internalThought(`Successfully crafted ${craftCount} of ${recipeKw}.`);
-            } catch (err) {
-              console.error('[CRAFT ERROR]', err.message || err);
-              await internalThought(`Tried to craft ${recipeKw}, but missing ingredients or crafting table.`);
+          if (itemInfo) {
+            const craftingTable = bot.findBlock({
+              matching: b => b && b.name === 'crafting_table',
+              maxDistance: 7
+            });
+
+            const recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
+
+            if (recipes.length > 0) {
+              try {
+                if (recipes[0].requiresTable && craftingTable) {
+                  const goal = new goals.GoalBlock(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z);
+                  await bot.pathfinder.goto(goal).catch(() => {});
+                }
+
+                await bot.craft(recipes[0], craftCount, craftingTable);
+                await internalThought(`Successfully crafted ${craftCount} of ${recipeKw}.`);
+              } catch (err) {
+                console.error('[CRAFT ERROR]', err.message || err);
+                await internalThought(`Failed to craft ${recipeKw}: ${err.message}`);
+              }
+            } else {
+              await internalThought(`No valid recipe or missing ingredients to craft ${recipeKw}.`);
             }
           } else {
-            await internalThought(`Could not find a valid crafting recipe for ${recipeKw}.`);
+            await internalThought(`Could not find item ${recipeKw} in minecraft-data database.`);
           }
         }
         break;
