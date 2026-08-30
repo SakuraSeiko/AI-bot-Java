@@ -33,8 +33,9 @@ function initBot() {
 
   let mcData = null;
   let isProcessing = false;
+  let autonomousInterval = null;
   const chatHistory = [];
-  const MAX_HISTORY = 100; // Zwiększono bufor pamięci do 100 wiadomości
+  const MAX_HISTORY = 100;
 
   function pushToHistory(role, sender, text) {
     chatHistory.push({ role, sender, text });
@@ -49,7 +50,7 @@ function initBot() {
     if (bot._client) {
       bot._client.on('error', (err) => {
         if (err.name === 'PartialReadError') {
-          console.warn('[PROTOCOL WARN] Handled PartialReadError in packet parsing (SlotComponent).');
+          console.warn('[PROTOCOL WARN] Handled PartialReadError in packet parsing.');
           return;
         }
         console.error('[CLIENT ERROR]', err.message || err);
@@ -73,9 +74,13 @@ function initBot() {
     } catch (err) {
       console.error('[BOT ERROR] Pathfinder init error:', err.message || err);
     }
+
+    // --- URUCHOMIENIE PĘTLI AUTONOMICZNEJ (TIME LOOP) ---
+    startAutonomousLoop();
   });
 
   function findTargetEntity(username) {
+    if (!username) return null;
     const cleanUser = username.toLowerCase().replace(/^\./, '');
     for (const name of Object.keys(bot.players)) {
       if (name.toLowerCase().replace(/^\./, '') === cleanUser) {
@@ -87,7 +92,6 @@ function initBot() {
     );
   }
 
-  // Udoskonalony skaner: rozróżnia pnie drzew, liście oraz pobliskie bloki
   function getNearbyBlockNames() {
     if (!bot.entity) return [];
     const blocks = bot.findBlocks({
@@ -116,7 +120,7 @@ function initBot() {
     const items = Object.values(bot.entities).filter(e => 
       e.name === 'item' && e.position.distanceTo(bot.entity.position) < 15
     );
-    return items.map(i => 'dropped_item');
+    return items.map(() => 'dropped_item');
   }
 
   function getInventoryItems() {
@@ -169,13 +173,69 @@ function initBot() {
     }
   }
 
+  // --- GAMEPAD LOW-LEVEL PLACEMENT CONTROLLER ---
+  async function lowLevelPlaceBlock(itemName, targetOffset = new Vec3(0, 0, 1)) {
+    const item = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemName.toLowerCase()));
+    if (!item) {
+      return { success: false, reason: `Nie mam ${itemName} w ekwipunku.` };
+    }
+
+    await bot.equip(item, 'hand');
+
+    const feetPos = bot.entity.position.floored();
+    const placementPos = feetPos.plus(targetOffset);
+
+    const faces = [
+      { dir: new Vec3(0, -1, 0), face: new Vec3(0, 1, 0) },
+      { dir: new Vec3(0, 1, 0), face: new Vec3(0, -1, 0) },
+      { dir: new Vec3(-1, 0, 0), face: new Vec3(1, 0, 0) },
+      { dir: new Vec3(1, 0, 0), face: new Vec3(-1, 0, 0) },
+      { dir: new Vec3(0, 0, -1), face: new Vec3(0, 0, 1) },
+      { dir: new Vec3(0, 0, 1), face: new Vec3(0, 0, -1) }
+    ];
+
+    let refBlock = null;
+    let placeVector = null;
+
+    for (const f of faces) {
+      const neighbor = bot.blockAt(placementPos.plus(f.dir));
+      if (neighbor && neighbor.name !== 'air' && neighbor.name !== 'cave_air' && neighbor.name !== 'water' && neighbor.name !== 'lava') {
+        refBlock = neighbor;
+        placeVector = f.face;
+        break;
+      }
+    }
+
+    if (!refBlock) {
+      refBlock = bot.blockAt(feetPos.offset(0, -1, 0));
+      placeVector = new Vec3(0, 1, 0);
+    }
+
+    if (!refBlock || refBlock.name === 'air') {
+      return { success: false, reason: 'Brak punktu oparcia w świecie.' };
+    }
+
+    try {
+      await bot.lookAt(refBlock.position.toVector3().add(new Vec3(0.5, 0.5, 0.5)), true);
+      await bot._placeBlockWithOptions(refBlock, placeVector, { swing: 'mainhand' });
+      return { success: true };
+    } catch (err) {
+      try {
+        await bot.placeBlock(refBlock, placeVector);
+        return { success: true };
+      } catch (innerErr) {
+        return { success: false, reason: innerErr.message };
+      }
+    }
+  }
+
   async function executeSingleAction(actionObj, username) {
     const { action, target, count } = actionObj;
     console.log(`[EXECUTE ACTION] Type: ${action}, Target: ${target}, Count: ${count}`);
 
     switch (action) {
       case 'follow':
-        const playerToFollow = findTargetEntity(username);
+        const playerToFollow = findTargetEntity(username || 'EsnaSeiko');
         if (playerToFollow) {
           bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
           await new Promise(resolve => setTimeout(resolve, 1500));
@@ -201,7 +261,7 @@ function initBot() {
 
           if (!targetBlock) break;
 
-          console.log(`[MINING] Targeting block ${targetBlock.name} at position ${targetBlock.position}`);
+          console.log(`[MINING] Targeting block ${targetBlock.name} at ${targetBlock.position}`);
           const defaultGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
 
           try {
@@ -213,10 +273,7 @@ function initBot() {
               }
               await bot.dig(freshBlock);
               minedCount++;
-
-              await new Promise(r => setTimeout(r, 200));
-              const pickupGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
-              await bot.pathfinder.goto(pickupGoal).catch(() => {});
+              await new Promise(r => setTimeout(r, 150));
             }
           } catch (err) {
             console.error('[MINE ERROR]', err.message || err);
@@ -225,11 +282,9 @@ function initBot() {
         }
 
         if (minedCount === 0) {
-          await internalThought(`Próbowałam wykopać ${target}, ale nie znalazłam takiego bloku w pobliżu.`);
-        } else if (minedCount < targetCount) {
-          await internalThought(`Zakończyłam kopanie. Wykopałam ${minedCount} z requested ${targetCount} bloków ${target}.`);
+          await internalThought(`Próbowałam wykopać ${target}, ale nie znalazłam bloku w zasięgu.`);
         } else {
-          await internalThought(`Pomyślnie wykopano wszystkie ${targetCount} bloków ${target}.`);
+          await internalThought(`Wykopałam ${minedCount} szt. ${target}.`);
         }
         break;
 
@@ -242,16 +297,16 @@ function initBot() {
           try {
             if (dropAmount && dropAmount < itemToDrop.count) {
               await bot.toss(itemToDrop.type, itemToDrop.metadata, dropAmount);
-              await internalThought(`Wyrzuciłam ${dropAmount} szt. ${itemToDrop.name} na ziemię.`);
+              await internalThought(`Wyrzuciłam ${dropAmount} szt. ${itemToDrop.name}.`);
             } else {
               await bot.tossStack(itemToDrop);
-              await internalThought(`Wyrzuciłam cały stos ${itemToDrop.name} na ziemię.`);
+              await internalThought(`Wyrzuciłam cały pakiet ${itemToDrop.name}.`);
             }
           } catch (err) {
             console.error('[TOSS ERROR]', err.message || err);
           }
         } else {
-          await internalThought(`Chciałam wyrzucić ${target}, ale nie mam tego w ekwipunku.`);
+          await internalThought(`Nie mam ${target} w ekwipunku do wyrzucenia.`);
         }
         break;
 
@@ -268,42 +323,13 @@ function initBot() {
               Math.floor(droppedItem.position.z)
             );
             await bot.pathfinder.goto(goal);
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 300));
             await internalThought(`Podniosłam leżące przedmioty z ziemi.`);
           } catch (err) {
             console.error('[PICKUP ERROR]', err.message || err);
           }
         } else {
-          await internalThought(`Chciałam podnieść przedmioty, ale nic nie leży w pobliżu.`);
-        }
-        break;
-
-      case 'attack':
-        const mobKw = (target || '').toLowerCase();
-        const mob = Object.values(bot.entities).find(e => 
-          e.name && e.name.toLowerCase().includes(mobKw) && e.position.distanceTo(bot.entity.position) < 30
-        );
-
-        if (mob) {
-          try {
-            const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'));
-            if (weapon) {
-              await bot.equip(weapon, 'hand');
-            }
-            bot.pathfinder.setGoal(new goals.GoalFollow(mob, 1), true);
-            
-            for (let i = 0; i < 6; i++) {
-              if (!bot.entities[mob.id]) break;
-              await bot.attack(mob);
-              await new Promise(r => setTimeout(r, 600));
-            }
-            bot.pathfinder.setGoal(null);
-            await internalThought(`Zaatakowałam ${target}.`);
-          } catch (err) {
-            console.error('[ATTACK ERROR]', err.message || err);
-          }
-        } else {
-          await internalThought(`Chciałam zaatakować ${target}, ale nie ma go w pobliżu.`);
+          await internalThought(`Brak leżących przedmiotów w pobliżu.`);
         }
         break;
 
@@ -324,56 +350,59 @@ function initBot() {
 
             if (recipes.length > 0) {
               try {
-                if (recipes[0].requiresTable) {
-                  if (craftingTable) {
-                    await bot.lookAt(craftingTable.position);
-                  } else {
-                    await internalThought(`Receptura na ${recipeKw} wymaga stołu rzemieślniczego, ale go tu nie widzę.`);
-                    break;
-                  }
+                if (recipes[0].requiresTable && !craftingTable) {
+                  await internalThought(`Tworzenie ${recipeKw} wymaga stołu rzemieślniczego. Muszę go najpierw postawić.`);
+                  break;
                 }
-
                 await bot.craft(recipes[0], craftCount, craftingTable);
                 await internalThought(`Pomyślnie wytworzono ${craftCount}x ${recipeKw}.`);
               } catch (err) {
                 console.error('[CRAFT ERROR]', err.message || err);
-                await internalThought(`Nie udało się wytworzyć ${recipeKw}: opóźnienie interfejsu lub brak miejsca.`);
+                await internalThought(`Błąd tworzenia ${recipeKw}: ${err.message}`);
               }
             } else {
-              await internalThought(`Brak receptury lub odpowiednich składników do wytworzenia ${recipeKw}.`);
+              await internalThought(`Brak wystarczających surowców w ekwipunku na ${recipeKw}.`);
             }
           } else {
-            await internalThought(`Nie znalazłam ${recipeKw} w bazie danych przedmiotów.`);
+            await internalThought(`Nie rozpoznano nazwy przedmiotu ${recipeKw}.`);
           }
         }
         break;
 
       case 'place':
         const placeKw = (target || '').toLowerCase();
-        const itemToPlace = bot.inventory.items().find(i => i.name.toLowerCase().includes(placeKw));
+        const placeRes = await lowLevelPlaceBlock(placeKw);
+        if (placeRes.success) {
+          await internalThought(`Pomyślnie postawiono blok ${placeKw}.`);
+        } else {
+          await internalThought(`Nie udało się postawić ${placeKw}: ${placeRes.reason}`);
+        }
+        break;
 
-        if (itemToPlace) {
+      case 'attack':
+        const mobKw = (target || '').toLowerCase();
+        const mob = Object.values(bot.entities).find(e => 
+          e.name && e.name.toLowerCase().includes(mobKw) && e.position.distanceTo(bot.entity.position) < 30
+        );
+
+        if (mob) {
           try {
-            await bot.equip(itemToPlace, 'hand');
+            const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'));
+            if (weapon) await bot.equip(weapon, 'hand');
+            bot.pathfinder.setGoal(new goals.GoalFollow(mob, 1), true);
             
-            // Szukanie najbliższej solidnej podstawy (Anchor block) pod nogami lub z boku
-            const basePos = bot.entity.position.floored().offset(0, -1, 0);
-            const refBlock = bot.blockAt(basePos) || bot.blockAt(bot.entity.position.floored().offset(1, -1, 0));
-
-            if (refBlock && refBlock.name !== 'air') {
-              await bot.placeBlock(refBlock, new Vec3(0, 1, 0)).catch(err => {
-                console.warn('[PLACE WARN] Direct place issue:', err.message);
-              });
-              await internalThought(`Postawiono blok ${itemToPlace.name}.`);
-            } else {
-              await internalThought(`Brak stabilnej powierzchni do postawienia bloku ${placeKw}.`);
+            for (let i = 0; i < 5; i++) {
+              if (!bot.entities[mob.id]) break;
+              await bot.attack(mob);
+              await new Promise(r => setTimeout(r, 500));
             }
+            bot.pathfinder.setGoal(null);
+            await internalThought(`Zatakowano ${target}.`);
           } catch (err) {
-            console.error('[PLACE ERROR]', err.message || err);
-            await internalThought(`Nie udała się próba postawienia ${placeKw}.`);
+            console.error('[ATTACK ERROR]', err.message || err);
           }
         } else {
-          await internalThought(`Chciałam postawić ${target}, ale nie mam tego w ekwipunku.`);
+          await internalThought(`Nie znaleziono ${target} w zasięgu.`);
         }
         break;
 
@@ -388,11 +417,10 @@ function initBot() {
             await bot.sleep(bedBlock);
             await internalThought(`Położyłam się do łóżka.`);
           } catch (err) {
-            console.error('[SLEEP ERROR]', err.message || err);
-            await internalThought(`Próba snu nie powiodła się: ${err.message}`);
+            await internalThought(`Próba snu nieudana: ${err.message}`);
           }
         } else {
-          await internalThought(`Nie widzę w pobliżu żadnego łóżka.`);
+          await internalThought(`Nie widzę w pobliżu łóżka.`);
         }
         break;
 
@@ -416,7 +444,7 @@ function initBot() {
         if (gearItem) {
           try {
             await bot.equip(gearItem, 'hand');
-            await internalThought(`Wyposażono ${gearItem.name} w dłoni.`);
+            await internalThought(`Trzymam teraz w dłoni ${gearItem.name}.`);
           } catch (err) {
             console.error('[EQUIP ERROR]', err.message || err);
           }
@@ -428,8 +456,56 @@ function initBot() {
     }
   }
 
+  // --- AUTONOMOUS TICK LOOP ENGINE ---
+  function startAutonomousLoop() {
+    if (autonomousInterval) clearInterval(autonomousInterval);
+
+    autonomousInterval = setInterval(async () => {
+      // Jeśli bot wykonuje polecenie z czatu lub jest w trakcie akcji, pomijamy ten tick
+      if (isProcessing || !bot.entity) return;
+
+      isProcessing = true;
+      try {
+        const worldContext = buildWorldContext();
+        const result = await analyzeMessage('System_Autonomous_Tick', 'Co robisz w tej chwili? Oceń stan otoczenia i wybierz akcję.', worldContext, chatHistory);
+
+        if (result && result.type === 'function') {
+          const { name, args } = result.action;
+          if (name === 'interactWithWorld') {
+            const { actions, sayInChat } = args;
+
+            if (sayInChat) {
+              bot.chat(`/me ${sayInChat}`);
+              pushToHistory('assistant', 'Alice', sayInChat);
+            }
+
+            if (actions && Array.isArray(actions)) {
+              for (const actionObj of actions) {
+                // Jeśli akcja to chat_only i brak słów, nie róbmy spamu
+                if (actionObj.action === 'chat_only' && !sayInChat) continue;
+                await executeSingleAction(actionObj, 'System');
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[AUTONOMOUS LOOP ERROR]', err.message || err);
+      } finally {
+        isProcessing = false;
+      }
+    }, 4500); // Odświeżanie pętli decyzyjnej co 4.5 sekundy
+  }
+
+  // --- REAKCJA NA OBRAŻENIA (EVENT DRIVEN) ---
+  bot.on('hurt', async () => {
+    if (isProcessing) return;
+    console.log('[EVENT] Alice received damage!');
+    await internalThought('Auu! Zostałam zaatakowana! Muszę zareagować!');
+  });
+
+  // --- REAKCJA NA CZAT GRACZA ---
   bot.on('chat', async (username, message) => {
-    if (username === bot.username || isProcessing) return;
+    if (username === bot.username) return;
 
     isProcessing = true;
     console.log(`[CHAT INCOMING] ${username}: ${message}`);
@@ -475,6 +551,7 @@ function initBot() {
   });
 
   bot.on('end', (reason) => {
+    if (autonomousInterval) clearInterval(autonomousInterval);
     console.log(`[BOT DISCONNECTED] Reason: ${reason}. Reconnecting in 10 seconds...`);
     setTimeout(initBot, 10000);
   });
