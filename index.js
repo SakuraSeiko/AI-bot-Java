@@ -50,7 +50,7 @@ function initBot() {
     if (bot._client) {
       bot._client.on('error', (err) => {
         if (err.name === 'PartialReadError') {
-          console.warn('[PROTOCOL WARN] Handled PartialReadError in packet parsing.');
+          console.warn('[PROTOCOL WARN] Handled PartialReadError in packet parsing (SlotComponent).');
           return;
         }
         console.error('[CLIENT ERROR]', err.message || err);
@@ -75,12 +75,10 @@ function initBot() {
       console.error('[BOT ERROR] Pathfinder init error:', err.message || err);
     }
 
-    // --- URUCHOMIENIE PĘTLI AUTONOMICZNEJ (TIME LOOP) ---
     startAutonomousLoop();
   });
 
   function findTargetEntity(username) {
-    if (!username) return null;
     const cleanUser = username.toLowerCase().replace(/^\./, '');
     for (const name of Object.keys(bot.players)) {
       if (name.toLowerCase().replace(/^\./, '') === cleanUser) {
@@ -96,8 +94,8 @@ function initBot() {
     if (!bot.entity) return [];
     const blocks = bot.findBlocks({
       matching: (b) => b && b.name !== 'air' && b.name !== 'cave_air',
-      maxDistance: 12,
-      count: 40
+      maxDistance: 10,
+      count: 20
     });
     const names = new Set();
     for (const pos of blocks) {
@@ -173,74 +171,18 @@ function initBot() {
     }
   }
 
-  // --- GAMEPAD LOW-LEVEL PLACEMENT CONTROLLER ---
-  async function lowLevelPlaceBlock(itemName, targetOffset = new Vec3(0, 0, 1)) {
-    const item = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemName.toLowerCase()));
-    if (!item) {
-      return { success: false, reason: `Nie mam ${itemName} w ekwipunku.` };
-    }
-
-    await bot.equip(item, 'hand');
-
-    const feetPos = bot.entity.position.floored();
-    const placementPos = feetPos.plus(targetOffset);
-
-    const faces = [
-      { dir: new Vec3(0, -1, 0), face: new Vec3(0, 1, 0) },
-      { dir: new Vec3(0, 1, 0), face: new Vec3(0, -1, 0) },
-      { dir: new Vec3(-1, 0, 0), face: new Vec3(1, 0, 0) },
-      { dir: new Vec3(1, 0, 0), face: new Vec3(-1, 0, 0) },
-      { dir: new Vec3(0, 0, -1), face: new Vec3(0, 0, 1) },
-      { dir: new Vec3(0, 0, 1), face: new Vec3(0, 0, -1) }
-    ];
-
-    let refBlock = null;
-    let placeVector = null;
-
-    for (const f of faces) {
-      const neighbor = bot.blockAt(placementPos.plus(f.dir));
-      if (neighbor && neighbor.name !== 'air' && neighbor.name !== 'cave_air' && neighbor.name !== 'water' && neighbor.name !== 'lava') {
-        refBlock = neighbor;
-        placeVector = f.face;
-        break;
-      }
-    }
-
-    if (!refBlock) {
-      refBlock = bot.blockAt(feetPos.offset(0, -1, 0));
-      placeVector = new Vec3(0, 1, 0);
-    }
-
-    if (!refBlock || refBlock.name === 'air') {
-      return { success: false, reason: 'Brak punktu oparcia w świecie.' };
-    }
-
-    try {
-      await bot.lookAt(refBlock.position.toVector3().add(new Vec3(0.5, 0.5, 0.5)), true);
-      await bot._placeBlockWithOptions(refBlock, placeVector, { swing: 'mainhand' });
-      return { success: true };
-    } catch (err) {
-      try {
-        await bot.placeBlock(refBlock, placeVector);
-        return { success: true };
-      } catch (innerErr) {
-        return { success: false, reason: innerErr.message };
-      }
-    }
-  }
-
   async function executeSingleAction(actionObj, username) {
     const { action, target, count } = actionObj;
     console.log(`[EXECUTE ACTION] Type: ${action}, Target: ${target}, Count: ${count}`);
 
     switch (action) {
       case 'follow':
-        const playerToFollow = findTargetEntity(username || 'EsnaSeiko');
+        const playerToFollow = findTargetEntity(username);
         if (playerToFollow) {
           bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          await new Promise(resolve => setTimeout(resolve, 3000));
         } else {
-          bot.chat('/me Nie widzę Cię w pobliżu.');
+          console.log('[BOT] Player to follow not found nearby.');
         }
         break;
 
@@ -261,7 +203,7 @@ function initBot() {
 
           if (!targetBlock) break;
 
-          console.log(`[MINING] Targeting block ${targetBlock.name} at ${targetBlock.position}`);
+          console.log(`[MINING] Targeting block ${targetBlock.name} at position ${targetBlock.position} (${i + 1}/${targetCount})`);
           const defaultGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
 
           try {
@@ -273,7 +215,10 @@ function initBot() {
               }
               await bot.dig(freshBlock);
               minedCount++;
-              await new Promise(r => setTimeout(r, 150));
+
+              await new Promise(r => setTimeout(r, 300));
+              const pickupGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
+              await bot.pathfinder.goto(pickupGoal).catch(() => {});
             }
           } catch (err) {
             console.error('[MINE ERROR]', err.message || err);
@@ -282,9 +227,11 @@ function initBot() {
         }
 
         if (minedCount === 0) {
-          await internalThought(`Próbowałam wykopać ${target}, ale nie znalazłam bloku w zasięgu.`);
+          await internalThought(`Attempted to mine ${target}, but could not find any matching block nearby.`);
+        } else if (minedCount < targetCount) {
+          await internalThought(`Finished mining. Mined ${minedCount} out of requested ${targetCount} blocks of ${target}.`);
         } else {
-          await internalThought(`Wykopałam ${minedCount} szt. ${target}.`);
+          await internalThought(`Successfully finished mining task! Mined all ${targetCount} blocks of ${target}.`);
         }
         break;
 
@@ -297,16 +244,16 @@ function initBot() {
           try {
             if (dropAmount && dropAmount < itemToDrop.count) {
               await bot.toss(itemToDrop.type, itemToDrop.metadata, dropAmount);
-              await internalThought(`Wyrzuciłam ${dropAmount} szt. ${itemToDrop.name}.`);
+              await internalThought(`Successfully dropped ${dropAmount} of ${itemToDrop.name} on the ground.`);
             } else {
               await bot.tossStack(itemToDrop);
-              await internalThought(`Wyrzuciłam cały pakiet ${itemToDrop.name}.`);
+              await internalThought(`Successfully dropped all ${itemToDrop.name} on the ground.`);
             }
           } catch (err) {
             console.error('[TOSS ERROR]', err.message || err);
           }
         } else {
-          await internalThought(`Nie mam ${target} w ekwipunku do wyrzucenia.`);
+          await internalThought(`Wanted to drop ${target}, but it was not found in inventory.`);
         }
         break;
 
@@ -323,59 +270,13 @@ function initBot() {
               Math.floor(droppedItem.position.z)
             );
             await bot.pathfinder.goto(goal);
-            await new Promise(resolve => setTimeout(resolve, 300));
-            await internalThought(`Podniosłam leżące przedmioty z ziemi.`);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            await internalThought(`Walked to dropped item and picked it up.`);
           } catch (err) {
             console.error('[PICKUP ERROR]', err.message || err);
           }
         } else {
-          await internalThought(`Brak leżących przedmiotów w pobliżu.`);
-        }
-        break;
-
-      case 'craft':
-        const recipeKw = (target || '').toLowerCase();
-        const craftCount = Number(count) || 1;
-
-        if (mcData) {
-          const itemInfo = mcData.itemsByName[recipeKw] || mcData.blocksByName[recipeKw];
-
-          if (itemInfo) {
-            let craftingTable = bot.findBlock({
-              matching: b => b && b.name === 'crafting_table',
-              maxDistance: 6
-            });
-
-            const recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
-
-            if (recipes.length > 0) {
-              try {
-                if (recipes[0].requiresTable && !craftingTable) {
-                  await internalThought(`Tworzenie ${recipeKw} wymaga stołu rzemieślniczego. Muszę go najpierw postawić.`);
-                  break;
-                }
-                await bot.craft(recipes[0], craftCount, craftingTable);
-                await internalThought(`Pomyślnie wytworzono ${craftCount}x ${recipeKw}.`);
-              } catch (err) {
-                console.error('[CRAFT ERROR]', err.message || err);
-                await internalThought(`Błąd tworzenia ${recipeKw}: ${err.message}`);
-              }
-            } else {
-              await internalThought(`Brak wystarczających surowców w ekwipunku na ${recipeKw}.`);
-            }
-          } else {
-            await internalThought(`Nie rozpoznano nazwy przedmiotu ${recipeKw}.`);
-          }
-        }
-        break;
-
-      case 'place':
-        const placeKw = (target || '').toLowerCase();
-        const placeRes = await lowLevelPlaceBlock(placeKw);
-        if (placeRes.success) {
-          await internalThought(`Pomyślnie postawiono blok ${placeKw}.`);
-        } else {
-          await internalThought(`Nie udało się postawić ${placeKw}: ${placeRes.reason}`);
+          await internalThought(`Tried to pick up items, but found no dropped items nearby.`);
         }
         break;
 
@@ -388,21 +289,89 @@ function initBot() {
         if (mob) {
           try {
             const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'));
-            if (weapon) await bot.equip(weapon, 'hand');
+            if (weapon) {
+              await bot.equip(weapon, 'hand');
+            }
             bot.pathfinder.setGoal(new goals.GoalFollow(mob, 1), true);
             
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 6; i++) {
               if (!bot.entities[mob.id]) break;
               await bot.attack(mob);
-              await new Promise(r => setTimeout(r, 500));
+              await new Promise(r => setTimeout(r, 700));
             }
             bot.pathfinder.setGoal(null);
-            await internalThought(`Zatakowano ${target}.`);
+            await internalThought(`Attacked entity ${target}.`);
           } catch (err) {
             console.error('[ATTACK ERROR]', err.message || err);
           }
         } else {
-          await internalThought(`Nie znaleziono ${target} w zasięgu.`);
+          await internalThought(`Tried to hunt ${target}, but could not find any matching entity nearby.`);
+        }
+        break;
+
+      case 'craft':
+        const recipeKw = (target || '').toLowerCase();
+        const craftCount = Number(count) || 1;
+
+        if (mcData) {
+          const itemInfo = mcData.itemsByName[recipeKw] || mcData.blocksByName[recipeKw];
+
+          if (itemInfo) {
+            const craftingTable = bot.findBlock({
+              matching: b => b && b.name === 'crafting_table',
+              maxDistance: 7
+            });
+
+            const recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
+
+            if (recipes.length > 0) {
+              try {
+                if (recipes[0].requiresTable && craftingTable) {
+                  const goal = new goals.GoalBlock(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z);
+                  await bot.pathfinder.goto(goal).catch(() => {});
+                }
+
+                await bot.craft(recipes[0], craftCount, craftingTable);
+                await internalThought(`Successfully crafted ${craftCount} of ${recipeKw}.`);
+              } catch (err) {
+                console.error('[CRAFT ERROR]', err.message || err);
+                await internalThought(`Failed to craft ${recipeKw}: ${err.message}`);
+              }
+            } else {
+              await internalThought(`No valid recipe or missing ingredients to craft ${recipeKw}.`);
+            }
+          } else {
+            await internalThought(`Could not find item ${recipeKw} in minecraft-data database.`);
+          }
+        }
+        break;
+
+      case 'place':
+        const placeKw = (target || '').toLowerCase();
+        const itemToPlace = bot.inventory.items().find(i => i.name.toLowerCase().includes(placeKw));
+
+        if (itemToPlace) {
+          try {
+            await bot.equip(itemToPlace, 'hand');
+            const referenceBlock = bot.blockAt(bot.entity.position.offset(0, -1, 1));
+            if (referenceBlock) {
+              await bot._client.write('block_place', {
+                location: referenceBlock.position,
+                direction: 1,
+                hand: 0,
+                cursorX: 0.5,
+                cursorY: 0.5,
+                cursorZ: 0.5,
+                insideBlock: false
+              });
+              await internalThought(`Placed block ${itemToPlace.name} via direct gamepad packet.`);
+            }
+          } catch (err) {
+            console.error('[PLACE ERROR]', err.message || err);
+            await internalThought(`Failed to place ${placeKw}: ${err.message}`);
+          }
+        } else {
+          await internalThought(`Tried to place ${target}, but do not have it in inventory.`);
         }
         break;
 
@@ -415,12 +384,13 @@ function initBot() {
         if (bedBlock) {
           try {
             await bot.sleep(bedBlock);
-            await internalThought(`Położyłam się do łóżka.`);
+            await internalThought(`Successfully went to sleep in bed.`);
           } catch (err) {
-            await internalThought(`Próba snu nieudana: ${err.message}`);
+            console.error('[SLEEP ERROR]', err.message || err);
+            await internalThought(`Tried to sleep, but issue occurred: ${err.message}`);
           }
         } else {
-          await internalThought(`Nie widzę w pobliżu łóżka.`);
+          await internalThought(`Tried to sleep, but could not find a bed nearby.`);
         }
         break;
 
@@ -431,7 +401,7 @@ function initBot() {
           try {
             await bot.equip(foodItem, 'hand');
             await bot.consume();
-            await internalThought(`Zjadłam ${foodItem.name}.`);
+            await internalThought(`Successfully ate ${foodItem.name}.`);
           } catch (err) {
             console.error('[EAT ERROR]', err.message || err);
           }
@@ -444,7 +414,7 @@ function initBot() {
         if (gearItem) {
           try {
             await bot.equip(gearItem, 'hand');
-            await internalThought(`Trzymam teraz w dłoni ${gearItem.name}.`);
+            await internalThought(`Equipped ${gearItem.name} in main hand.`);
           } catch (err) {
             console.error('[EQUIP ERROR]', err.message || err);
           }
@@ -456,18 +426,21 @@ function initBot() {
     }
   }
 
-  // --- AUTONOMOUS TICK LOOP ENGINE ---
   function startAutonomousLoop() {
     if (autonomousInterval) clearInterval(autonomousInterval);
 
     autonomousInterval = setInterval(async () => {
-      // Jeśli bot wykonuje polecenie z czatu lub jest w trakcie akcji, pomijamy ten tick
       if (isProcessing || !bot.entity) return;
 
       isProcessing = true;
       try {
         const worldContext = buildWorldContext();
-        const result = await analyzeMessage('System_Autonomous_Tick', 'Co robisz w tej chwili? Oceń stan otoczenia i wybierz akcję.', worldContext, chatHistory);
+        const result = await analyzeMessage(
+          'System_Autonomous_Tick',
+          'Evaluate world state and execute background actions silently. DO NOT write in chat unless directly requested by player.',
+          worldContext,
+          chatHistory
+        );
 
         if (result && result.type === 'function') {
           const { name, args } = result.action;
@@ -475,14 +448,13 @@ function initBot() {
             const { actions, sayInChat } = args;
 
             if (sayInChat) {
-              bot.chat(`/me ${sayInChat}`);
+              console.log(`[AUTONOMOUS THOUGHT] ${sayInChat}`);
               pushToHistory('assistant', 'Alice', sayInChat);
             }
 
             if (actions && Array.isArray(actions)) {
               for (const actionObj of actions) {
-                // Jeśli akcja to chat_only i brak słów, nie róbmy spamu
-                if (actionObj.action === 'chat_only' && !sayInChat) continue;
+                if (actionObj.action === 'chat_only') continue;
                 await executeSingleAction(actionObj, 'System');
               }
             }
@@ -493,19 +465,11 @@ function initBot() {
       } finally {
         isProcessing = false;
       }
-    }, 4500); // Odświeżanie pętli decyzyjnej co 4.5 sekundy
+    }, 6000);
   }
 
-  // --- REAKCJA NA OBRAŻENIA (EVENT DRIVEN) ---
-  bot.on('hurt', async () => {
-    if (isProcessing) return;
-    console.log('[EVENT] Alice received damage!');
-    await internalThought('Auu! Zostałam zaatakowana! Muszę zareagować!');
-  });
-
-  // --- REAKCJA NA CZAT GRACZA ---
   bot.on('chat', async (username, message) => {
-    if (username === bot.username) return;
+    if (username === bot.username || isProcessing) return;
 
     isProcessing = true;
     console.log(`[CHAT INCOMING] ${username}: ${message}`);
