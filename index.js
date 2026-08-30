@@ -1,4 +1,3 @@
-const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const toolPlugin = require('mineflayer-tool').plugin;
