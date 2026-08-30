@@ -2,6 +2,7 @@ const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const toolPlugin = require('mineflayer-tool').plugin;
+const { Vec3 } = require('vec3');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -44,6 +45,16 @@ function initBot() {
 
   bot.on('login', () => {
     console.log('[BOT] Successfully logged in to the server.');
+
+    if (bot._client) {
+      bot._client.on('error', (err) => {
+        if (err.name === 'PartialReadError') {
+          console.warn('[PROTOCOL WARN] Handled PartialReadError in packet parsing (SlotComponent).');
+          return;
+        }
+        console.error('[CLIENT ERROR]', err.message || err);
+      });
+    }
   });
 
   bot.once('spawn', () => {
@@ -181,7 +192,7 @@ function initBot() {
 
       case 'mine':
         const blockKw = (target || '').toLowerCase();
-        const targetCount = Number(count) || 5;
+        const targetCount = Number(count) || 1;
         let minedCount = 0;
 
         for (let i = 0; i < targetCount; i++) {
@@ -345,11 +356,12 @@ function initBot() {
             await bot.equip(itemToPlace, 'hand');
             const referenceBlock = bot.blockAt(bot.entity.position.offset(0, -1, 1));
             if (referenceBlock) {
-              await bot.placeBlock(referenceBlock, new mineflayer.vec3(0, 1, 0));
+              await bot.placeBlock(referenceBlock, new Vec3(0, 1, 0));
               await internalThought(`Placed block ${itemToPlace.name} on the ground.`);
             }
           } catch (err) {
             console.error('[PLACE ERROR]', err.message || err);
+            await internalThought(`Failed to place ${placeKw}: ${err.message}`);
           }
         } else {
           await internalThought(`Tried to place ${target}, but do not have it in inventory.`);
