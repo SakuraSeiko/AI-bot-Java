@@ -1,7 +1,7 @@
+const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const toolPlugin = require('mineflayer-tool').plugin;
-const { Vec3 } = require('vec3');
 const { initGemini, analyzeMessage } = require('./gemini');
 
 const PORT = process.env.PORT || 3000;
@@ -31,10 +31,8 @@ function initBot() {
   bot.loadPlugin(toolPlugin);
 
   let mcData = null;
-  let isProcessing = false;
-  let autonomousInterval = null;
   const chatHistory = [];
-  const MAX_HISTORY = 100;
+  const MAX_HISTORY = 50;
 
   function pushToHistory(role, sender, text) {
     chatHistory.push({ role, sender, text });
@@ -45,16 +43,6 @@ function initBot() {
 
   bot.on('login', () => {
     console.log('[BOT] Successfully logged in to the server.');
-
-    if (bot._client) {
-      bot._client.on('error', (err) => {
-        if (err.name === 'PartialReadError') {
-          console.warn('[PROTOCOL WARN] Handled PartialReadError in packet parsing (SlotComponent).');
-          return;
-        }
-        console.error('[CLIENT ERROR]', err.message || err);
-      });
-    }
   });
 
   bot.once('spawn', () => {
@@ -73,8 +61,6 @@ function initBot() {
     } catch (err) {
       console.error('[BOT ERROR] Pathfinder init error:', err.message || err);
     }
-
-    startAutonomousLoop();
   });
 
   function findTargetEntity(username) {
@@ -104,22 +90,6 @@ function initBot() {
     return Array.from(names);
   }
 
-  function getNearbyEntities() {
-    if (!bot.entity) return [];
-    const entities = Object.values(bot.entities).filter(e => 
-      e !== bot.entity && e.position.distanceTo(bot.entity.position) < 15
-    );
-    return entities.map(e => e.name || e.username || e.type).filter(Boolean);
-  }
-
-  function getNearbyDroppedItems() {
-    if (!bot.entity) return [];
-    const items = Object.values(bot.entities).filter(e => 
-      e.name === 'item' && e.position.distanceTo(bot.entity.position) < 15
-    );
-    return items.map(() => 'dropped_item');
-  }
-
   function getInventoryItems() {
     return bot.inventory.items().map(item => `${item.name} x${item.count}`);
   }
@@ -134,8 +104,10 @@ function initBot() {
     return equipped;
   }
 
-  function buildWorldContext() {
-    return {
+  async function internalThought(thoughtMessage) {
+    pushToHistory('user', 'System', thoughtMessage);
+
+    const worldContext = {
       pos: {
         x: Math.floor(bot.entity.position.x),
         y: Math.floor(bot.entity.position.y),
@@ -145,15 +117,8 @@ function initBot() {
       food: bot.food || 20,
       inventory: getInventoryItems(),
       equipment: getEquippedItems(),
-      nearbyBlocks: getNearbyBlockNames(),
-      nearbyEntities: getNearbyEntities(),
-      nearbyItems: getNearbyDroppedItems()
+      nearbyBlocks: getNearbyBlockNames()
     };
-  }
-
-  async function internalThought(thoughtMessage) {
-    pushToHistory('user', 'System', thoughtMessage);
-    const worldContext = buildWorldContext();
 
     const thoughtResult = await analyzeMessage('System', thoughtMessage, worldContext, chatHistory);
     
@@ -165,7 +130,7 @@ function initBot() {
     }
 
     if (botReply) {
-      console.log(`[INTERNAL THOUGHT LOGGED] ${botReply}`);
+      bot.chat(`/me ${botReply}`);
       pushToHistory('assistant', 'Alice', botReply);
     }
   }
@@ -181,7 +146,7 @@ function initBot() {
           bot.pathfinder.setGoal(new goals.GoalFollow(playerToFollow, 2), true);
           await new Promise(resolve => setTimeout(resolve, 3000));
         } else {
-          console.log('[BOT] Player to follow not found nearby.');
+          bot.chat('/me Cannot find you nearby.');
         }
         break;
 
@@ -191,7 +156,7 @@ function initBot() {
 
       case 'mine':
         const blockKw = (target || '').toLowerCase();
-        const targetCount = Number(count) || 1;
+        const targetCount = Number(count) || 5;
         let minedCount = 0;
 
         for (let i = 0; i < targetCount; i++) {
@@ -214,10 +179,6 @@ function initBot() {
               }
               await bot.dig(freshBlock);
               minedCount++;
-
-              await new Promise(r => setTimeout(r, 300));
-              const pickupGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
-              await bot.pathfinder.goto(pickupGoal).catch(() => {});
             }
           } catch (err) {
             console.error('[MINE ERROR]', err.message || err);
@@ -236,160 +197,16 @@ function initBot() {
 
       case 'toss_item':
         const itemKw = (target || '').toLowerCase();
-        const dropAmount = Number(count) || null;
         const itemToDrop = bot.inventory.items().find(i => i.name.toLowerCase().includes(itemKw));
-
         if (itemToDrop) {
           try {
-            if (dropAmount && dropAmount < itemToDrop.count) {
-              await bot.toss(itemToDrop.type, itemToDrop.metadata, dropAmount);
-              await internalThought(`Successfully dropped ${dropAmount} of ${itemToDrop.name} on the ground.`);
-            } else {
-              await bot.tossStack(itemToDrop);
-              await internalThought(`Successfully dropped all ${itemToDrop.name} on the ground.`);
-            }
+            await bot.tossStack(itemToDrop);
+            await internalThought(`Successfully dropped item ${itemToDrop.name} on the ground.`);
           } catch (err) {
             console.error('[TOSS ERROR]', err.message || err);
           }
         } else {
           await internalThought(`Wanted to drop ${target}, but it was not found in inventory.`);
-        }
-        break;
-
-      case 'pickup':
-        const droppedItem = Object.values(bot.entities).find(e => 
-          e.name === 'item' && e.position.distanceTo(bot.entity.position) < 20
-        );
-
-        if (droppedItem) {
-          try {
-            const goal = new goals.GoalBlock(
-              Math.floor(droppedItem.position.x),
-              Math.floor(droppedItem.position.y),
-              Math.floor(droppedItem.position.z)
-            );
-            await bot.pathfinder.goto(goal);
-            await new Promise(resolve => setTimeout(resolve, 800));
-            await internalThought(`Walked to dropped item and picked it up.`);
-          } catch (err) {
-            console.error('[PICKUP ERROR]', err.message || err);
-          }
-        } else {
-          await internalThought(`Tried to pick up items, but found no dropped items nearby.`);
-        }
-        break;
-
-      case 'attack':
-        const mobKw = (target || '').toLowerCase();
-        const mob = Object.values(bot.entities).find(e => 
-          e.name && e.name.toLowerCase().includes(mobKw) && e.position.distanceTo(bot.entity.position) < 30
-        );
-
-        if (mob) {
-          try {
-            const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'));
-            if (weapon) {
-              await bot.equip(weapon, 'hand');
-            }
-            bot.pathfinder.setGoal(new goals.GoalFollow(mob, 1), true);
-            
-            for (let i = 0; i < 6; i++) {
-              if (!bot.entities[mob.id]) break;
-              await bot.attack(mob);
-              await new Promise(r => setTimeout(r, 700));
-            }
-            bot.pathfinder.setGoal(null);
-            await internalThought(`Attacked entity ${target}.`);
-          } catch (err) {
-            console.error('[ATTACK ERROR]', err.message || err);
-          }
-        } else {
-          await internalThought(`Tried to hunt ${target}, but could not find any matching entity nearby.`);
-        }
-        break;
-
-      case 'craft':
-        const recipeKw = (target || '').toLowerCase();
-        const craftCount = Number(count) || 1;
-
-        if (mcData) {
-          const itemInfo = mcData.itemsByName[recipeKw] || mcData.blocksByName[recipeKw];
-
-          if (itemInfo) {
-            const craftingTable = bot.findBlock({
-              matching: b => b && b.name === 'crafting_table',
-              maxDistance: 7
-            });
-
-            const recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
-
-            if (recipes.length > 0) {
-              try {
-                if (recipes[0].requiresTable && craftingTable) {
-                  const goal = new goals.GoalBlock(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z);
-                  await bot.pathfinder.goto(goal).catch(() => {});
-                }
-
-                await bot.craft(recipes[0], craftCount, craftingTable);
-                await internalThought(`Successfully crafted ${craftCount} of ${recipeKw}.`);
-              } catch (err) {
-                console.error('[CRAFT ERROR]', err.message || err);
-                await internalThought(`Failed to craft ${recipeKw}: ${err.message}`);
-              }
-            } else {
-              await internalThought(`No valid recipe or missing ingredients to craft ${recipeKw}.`);
-            }
-          } else {
-            await internalThought(`Could not find item ${recipeKw} in minecraft-data database.`);
-          }
-        }
-        break;
-
-      case 'place':
-        const placeKw = (target || '').toLowerCase();
-        const itemToPlace = bot.inventory.items().find(i => i.name.toLowerCase().includes(placeKw));
-
-        if (itemToPlace) {
-          try {
-            await bot.equip(itemToPlace, 'hand');
-            const referenceBlock = bot.blockAt(bot.entity.position.offset(0, -1, 1));
-            if (referenceBlock) {
-              await bot._client.write('block_place', {
-                location: referenceBlock.position,
-                direction: 1,
-                hand: 0,
-                cursorX: 0.5,
-                cursorY: 0.5,
-                cursorZ: 0.5,
-                insideBlock: false
-              });
-              await internalThought(`Placed block ${itemToPlace.name} via direct gamepad packet.`);
-            }
-          } catch (err) {
-            console.error('[PLACE ERROR]', err.message || err);
-            await internalThought(`Failed to place ${placeKw}: ${err.message}`);
-          }
-        } else {
-          await internalThought(`Tried to place ${target}, but do not have it in inventory.`);
-        }
-        break;
-
-      case 'sleep':
-        const bedBlock = bot.findBlock({
-          matching: b => b && b.name.includes('bed'),
-          maxDistance: 10
-        });
-
-        if (bedBlock) {
-          try {
-            await bot.sleep(bedBlock);
-            await internalThought(`Successfully went to sleep in bed.`);
-          } catch (err) {
-            console.error('[SLEEP ERROR]', err.message || err);
-            await internalThought(`Tried to sleep, but issue occurred: ${err.message}`);
-          }
-        } else {
-          await internalThought(`Tried to sleep, but could not find a bed nearby.`);
         }
         break;
 
@@ -419,93 +236,52 @@ function initBot() {
           }
         }
         break;
-
-      case 'chat_only':
-        break;
     }
   }
 
-  function startAutonomousLoop() {
-    if (autonomousInterval) clearInterval(autonomousInterval);
-
-    autonomousInterval = setInterval(async () => {
-      if (isProcessing || !bot.entity) return;
-
-      isProcessing = true;
-      try {
-        const worldContext = buildWorldContext();
-        const result = await analyzeMessage(
-          'System_Autonomous_Tick',
-          'Evaluate world state and execute background actions silently. DO NOT write in chat unless directly requested by player.',
-          worldContext,
-          chatHistory
-        );
-
-        if (result && result.type === 'function') {
-          const { name, args } = result.action;
-          if (name === 'interactWithWorld') {
-            const { actions, sayInChat } = args;
-
-            if (sayInChat) {
-              console.log(`[AUTONOMOUS THOUGHT] ${sayInChat}`);
-              pushToHistory('assistant', 'Alice', sayInChat);
-            }
-
-            if (actions && Array.isArray(actions)) {
-              for (const actionObj of actions) {
-                if (actionObj.action === 'chat_only') continue;
-                await executeSingleAction(actionObj, 'System');
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error('[AUTONOMOUS LOOP ERROR]', err.message || err);
-      } finally {
-        isProcessing = false;
-      }
-    }, 6000);
-  }
-
   bot.on('chat', async (username, message) => {
-    if (username === bot.username || isProcessing) return;
+    if (username === bot.username) return;
 
-    isProcessing = true;
     console.log(`[CHAT INCOMING] ${username}: ${message}`);
     pushToHistory('user', username, message);
 
-    const worldContext = buildWorldContext();
+    const worldContext = {
+      pos: {
+        x: Math.floor(bot.entity.position.x),
+        y: Math.floor(bot.entity.position.y),
+        z: Math.floor(bot.entity.position.z)
+      },
+      health: bot.health || 20,
+      food: bot.food || 20,
+      inventory: getInventoryItems(),
+      equipment: getEquippedItems(),
+      nearbyBlocks: getNearbyBlockNames()
+    };
 
-    try {
-      const result = await analyzeMessage(username, message, worldContext, chatHistory);
-      if (result) {
-        if (result.type === 'text') {
-          bot.chat(`/me ${result.text}`);
-          pushToHistory('assistant', 'Alice', result.text);
-        } else if (result.type === 'function') {
-          const { name, args } = result.action;
-          console.log(`[ACTION CALL] Executing ${name} with arguments:`, args);
+    const result = await analyzeMessage(username, message, worldContext, chatHistory);
+    if (!result) return;
 
-          if (name === 'interactWithWorld') {
-            const { actions, sayInChat } = args;
+    if (result.type === 'text') {
+      bot.chat(`/me ${result.text}`);
+      pushToHistory('assistant', 'Alice', result.text);
+    } else if (result.type === 'function') {
+      const { name, args } = result.action;
+      console.log(`[ACTION CALL] Executing ${name} with arguments:`, args);
 
-            if (sayInChat) {
-              bot.chat(`/me ${sayInChat}`);
-              pushToHistory('assistant', 'Alice', sayInChat);
-            }
+      if (name === 'interactWithWorld') {
+        const { actions, sayInChat } = args;
 
-            if (actions && Array.isArray(actions)) {
-              for (const actionObj of actions) {
-                await executeSingleAction(actionObj, username);
-              }
-            }
+        if (sayInChat) {
+          bot.chat(`/me ${sayInChat}`);
+          pushToHistory('assistant', 'Alice', sayInChat);
+        }
+
+        if (actions && Array.isArray(actions)) {
+          for (const actionObj of actions) {
+            await executeSingleAction(actionObj, username);
           }
         }
       }
-    } catch (err) {
-      console.error('[CHAT ERROR]', err.message || err);
-    } finally {
-      isProcessing = false;
     }
   });
 
@@ -514,7 +290,6 @@ function initBot() {
   });
 
   bot.on('end', (reason) => {
-    if (autonomousInterval) clearInterval(autonomousInterval);
     console.log(`[BOT DISCONNECTED] Reason: ${reason}. Reconnecting in 10 seconds...`);
     setTimeout(initBot, 10000);
   });
