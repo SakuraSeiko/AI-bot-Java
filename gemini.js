@@ -3,7 +3,7 @@ const { GoogleGenAI } = require('@google/genai');
 const tools = [
   {
     name: "interactWithWorld",
-    description: "Execute a sequence of physical actions in the game world and optionally speak in chat.",
+    description: "Execute a sequence of physical actions in the game world and speak in chat.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -29,11 +29,11 @@ const tools = [
                   "sleep",
                   "pickup"
                 ],
-                description: "Action type: mine (dig block), follow (walk to target), toss_item (drop specified amount), equip (hold/wear item), eat (consume food), stop (halt), chat_only (talk without moving), place (put block on ground), attack (fight entity), craft (craft item), sleep (use bed), pickup (walk to dropped items)."
+                description: "Action type: mine (dig block), follow (walk to player/target), toss_item (drop specified amount of item), equip (hold/wear item), eat (consume food), stop (halt movement), chat_only (talk without physical action), place (put block on ground), attack (hunt/fight entity), craft (craft item via inventory or crafting table), sleep (use bed), pickup (walk to dropped items on ground)."
               },
               target: {
                 type: "STRING",
-                description: "Target identifier: block name (e.g. oak_log), item name (e.g. oak_planks), mob/player name, or 'item' for pickup."
+                description: "Target identifier: block name (e.g. oak_log, coal_ore, bed), item name (e.g. oak_planks, wooden_pickaxe), mob/player name (e.g. sheep, pig, zombie), or 'item' for pickup."
               },
               count: {
                 type: "NUMBER",
@@ -45,7 +45,7 @@ const tools = [
         },
         sayInChat: {
           type: "STRING",
-          description: "Alice's message spoken to players in Minecraft chat. Leave EMPTY during autonomous background ticks unless explicitly addressing a player."
+          description: "Alice's chat message in natural Polish spoken while initiating the action sequence."
         }
       },
       required: ["actions"]
@@ -77,11 +77,23 @@ CURRENT WORLD CONTEXT:
 
 EXECUTION RULES:
 1. Always call the interactWithWorld tool to respond or take actions.
-2. Build sequential action arrays for multi-step goals (e.g. mine wood -> craft planks -> place crafting table).
-3. If sender is "System_Autonomous_Tick", you are acting on your own. DO NOT fill sayInChat unless responding directly to a player or an urgent event. Perform background actions silently.
-4. If sender is a real player, speak naturally in Polish in sayInChat while performing your actions.
-5. If sender is "System", it is an internal status report from your previous action. Use it to update your internal state and decide next steps without duplicate messaging.
-6. For simple chat queries without physical work, use action="chat_only".`;
+2. If the user asks for multi-step tasks (e.g. "pick up wood, craft planks, and give me 5"), build a logical action sequence in the actions array.
+3. Available Actions:
+   - "mine": Target block name (e.g. oak_log, coal_ore). Set count if requested.
+   - "place": Target block item name from inventory to place on ground.
+   - "pickup": Walk to and pick up dropped items on the ground.
+   - "attack": Hunt or fight nearby mobs/animals (e.g. sheep, pig, cow, zombie).
+   - "craft": Craft an item (e.g. oak_planks, sticks, wooden_pickaxe). Set count if requested.
+   - "sleep": Find and sleep in a nearby bed.
+   - "toss_item": Drop items. ALWAYS specify count if dropping a portion (e.g. target="oak_planks", count=5).
+   - "equip": Equip tool, weapon, or armor in main hand or body.
+   - "eat": Eat food from inventory.
+   - "follow": Walk towards the player.
+   - "stop": Cancel current pathing/movement.
+   - "chat_only": When only talking without physical actions.
+4. Speak in natural, friendly Polish in sayInChat.
+5. If the sender is "System", it is an internal action report – reply naturally in Polish informing the user of what happened.
+6. For simple questions or conversations, use action="chat_only".`;
 
   const contents = chatHistory.map(entry => ({
     role: entry.role === 'assistant' ? 'model' : 'user',
