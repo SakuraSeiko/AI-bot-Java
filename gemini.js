@@ -9,7 +9,7 @@ const tools = [
       properties: {
         thought: {
           type: "STRING",
-          description: "Emillie's internal reasoning, spatial assessment, and decision process. Strictly kept in logs, NEVER sent directly to in-game chat."
+          description: "Alice's internal reasoning, spatial assessment, and decision process. Strictly kept in logs, NEVER sent directly to in-game chat."
         },
         actions: {
           type: "ARRAY",
@@ -50,7 +50,7 @@ const tools = [
         },
         sayInChat: {
           type: "STRING",
-          description: "Emillie's chat message in natural Polish spoken while initiating the action sequence."
+          description: "Alice's chat message in natural Polish spoken while initiating the action sequence."
         }
       },
       required: ["thought", "actions"]
@@ -69,7 +69,7 @@ function initGemini() {
 async function analyzeMessage(username, message, worldContext, chatHistory = []) {
   if (!ai) return null;
 
-  const systemInstruction = `You are Emillie – an autonomous AI companion in Minecraft.
+  const systemInstruction = `You are Alice – an autonomous AI companion in Minecraft.
 
 CURRENT WORLD CONTEXT:
 - Position: X:${worldContext.pos.x}, Y:${worldContext.pos.y}, Z:${worldContext.pos.z}
