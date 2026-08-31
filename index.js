@@ -56,10 +56,11 @@ function initBot() {
       mcData = require('minecraft-data')(version);
       if (mcData) {
         const defaultMove = new Movements(bot, mcData);
-        // Priorytet omijania przeszkód zamiast niszczenia bloków podczas zwykłego ruchu
-        defaultMove.canDig = false;
+        defaultMove.canDig = true;
+        defaultMove.allowParkour = true;
+        defaultMove.allowSprinting = true;
         bot.pathfinder.setMovements(defaultMove);
-        console.log('[BOT] Pathfinder initialized successfully (canDig set to false for safe navigation).');
+        console.log('[BOT] Pathfinder initialized successfully with full jumping and parkour capabilities.');
       }
     } catch (err) {
       console.error('[BOT ERROR] Pathfinder init error:', err.message || err);
@@ -199,11 +200,6 @@ function initBot() {
           break;
 
         case 'mine':
-          // Włączamy kopanie wyłącznie na czas wykonywania dedykowanej akcji kopania
-          if (bot.pathfinder.movements) {
-            bot.pathfinder.movements.canDig = true;
-          }
-
           const blockKw = (target || '').toLowerCase();
           const targetCount = Number(count) || 5;
           let minedCount = 0;
@@ -232,11 +228,6 @@ function initBot() {
               const pickupGoal = new goals.GoalBlock(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z);
               await bot.pathfinder.goto(pickupGoal).catch(() => {});
             }
-          }
-
-          // Przywracamy domyślny priorytet omijania bloków po zakończeniu kopania
-          if (bot.pathfinder.movements) {
-            bot.pathfinder.movements.canDig = false;
           }
 
           if (minedCount === 0) {
@@ -376,11 +367,8 @@ function initBot() {
           });
 
           if (bedBlock) {
-            // Podchodzimy bezpiecznie W POBLIŻE łóżka (1.5 blok), zamiast wchodzić bezpośrednio w jego pozycję
             const bedGoal = new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 1.5);
             await bot.pathfinder.goto(bedGoal).catch(() => {});
-
-            // Opóźnienie pozwalające Mineflayerowi wczytać pełny stan obydwu połówek łóżka
             await new Promise(r => setTimeout(r, 400));
 
             const freshBedBlock = bot.blockAt(bedBlock.position);
@@ -394,6 +382,15 @@ function initBot() {
           } else {
             await internalThought(`Tried to sleep, but could not find a bed nearby.`);
             bot.chat(`/me Nie widzę w pobliżu żadnego łóżka.`);
+          }
+          break;
+
+        case 'wake':
+          if (bot.isSleeping) {
+            await bot.wake();
+            await internalThought(`Successfully woke up from bed.`);
+          } else {
+            await internalThought(`Tried to wake up, but was not in bed.`);
           }
           break;
 
@@ -422,11 +419,6 @@ function initBot() {
     } catch (err) {
       console.error(`[ACTION ERROR - ${action}]`, err.message || err);
       await internalThought(`Failed action ${action}: ${err.message}`);
-    } finally {
-      // Bezpieczeństwo: Upewniamy się, że po jakiejkolwiek akcji canDig powraca do wartości false
-      if (bot.pathfinder.movements && action !== 'mine') {
-        bot.pathfinder.movements.canDig = false;
-      }
     }
   }
 
