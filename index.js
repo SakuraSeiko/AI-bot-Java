@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Emillie AI Bot Service is active.\n');
+  res.end('Alice AI Bot Service is active.\n');
 });
 
 server.listen(PORT, () => {
@@ -24,7 +24,7 @@ function initBot() {
   const bot = mineflayer.createBot({
     host: 'EsnaSeiko.aternos.me',
     port: 51316,
-    username: 'Emillie',
+    username: 'Alice',
     version: '26.1'
   });
 
@@ -48,7 +48,7 @@ function initBot() {
   });
 
   bot.once('spawn', () => {
-    console.log('[BOT] Emillie spawned in the world.');
+    console.log('[BOT] Alice spawned in the world.');
     bot.physicsEnabled = true;
 
     try {
@@ -170,11 +170,11 @@ function initBot() {
     if (thoughtResult && thoughtResult.type === 'function') {
       const { thought, sayInChat } = thoughtResult.action.args;
       if (thought) {
-        console.log(`[EMILLIE INTERNAL THOUGHT] ${thought}`);
+        console.log(`[ALICE INTERNAL THOUGHT] ${thought}`);
       }
       if (sayInChat) {
         bot.chat(`/me ${sayInChat}`);
-        pushToHistory('assistant', 'Emillie', sayInChat);
+        pushToHistory('assistant', 'Alice', sayInChat);
       }
     }
   }
@@ -436,7 +436,7 @@ function initBot() {
       if (result) {
         if (result.type === 'text') {
           bot.chat(`/me ${result.text}`);
-          pushToHistory('assistant', 'Emillie', result.text);
+          pushToHistory('assistant', 'Alice', result.text);
         } else if (result.type === 'function') {
           const { name, args } = result.action;
           console.log(`[ACTION CALL] Executing ${name} with arguments:`, args);
@@ -445,12 +445,12 @@ function initBot() {
             const { thought, actions, sayInChat } = args;
 
             if (thought) {
-              console.log(`[EMILLIE INTERNAL THOUGHT] ${thought}`);
+              console.log(`[ALICE INTERNAL THOUGHT] ${thought}`);
             }
 
             if (sayInChat) {
               bot.chat(`/me ${sayInChat}`);
-              pushToHistory('assistant', 'Emillie', sayInChat);
+              pushToHistory('assistant', 'Alice', sayInChat);
             }
 
             if (actions && Array.isArray(actions)) {
