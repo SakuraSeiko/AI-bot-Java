@@ -31,9 +31,10 @@ const tools = [
                   "attack",
                   "craft",
                   "sleep",
+                  "wake",
                   "pickup"
                 ],
-                description: "Action type: mine (dig block), follow (walk to player/target), toss_item (drop specified amount of item), equip (hold/wear item), eat (consume food), stop (halt movement), chat_only (talk without physical action), place (put block on ground), attack (hunt/fight entity), craft (craft item via inventory or crafting table), sleep (use bed), pickup (walk to dropped items on ground)."
+                description: "Action type: mine (dig block), follow (walk to player/target), toss_item (drop specified amount of item), equip (hold/wear item), eat (consume food), stop (halt movement), chat_only (talk without physical action), place (put block on ground), attack (hunt/fight entity), craft (craft item via inventory or crafting table), sleep (use bed), wake (stand up from bed), pickup (walk to dropped items on ground)."
               },
               target: {
                 type: "STRING",
@@ -82,24 +83,26 @@ CURRENT WORLD CONTEXT:
 EXECUTION RULES:
 1. Always call the interactWithWorld tool to respond or take actions.
 2. Store your reasoning, plan, and internal state checks inside the 'thought' property.
-3. If missing ingredients or tools for crafting, DO NOT randomly mine player-built blocks or structures. Simply inform the player in 'sayInChat' about the missing items.
-4. If the user asks for multi-step tasks (e.g. "pick up wood, craft planks, and give me 5"), build a logical action sequence in the actions array.
-5. Available Actions:
+3. If the player asks you to bring, give, or toss items to them, ALWAYS include a "follow" action BEFORE the "toss_item" action so you walk up to the player first.
+4. If missing ingredients or tools for crafting, DO NOT randomly mine player-built blocks or structures. Simply inform the player in 'sayInChat' about the missing items.
+5. If the user asks for multi-step tasks (e.g. "pick up wood, craft planks, and give me 5"), build a logical action sequence in the actions array.
+6. Available Actions:
    - "mine": Target block name (e.g. oak_log, coal_ore). Set count if requested.
    - "place": Target block item name from inventory to place on ground.
    - "pickup": Walk to and pick up dropped items on the ground.
    - "attack": Hunt or fight nearby mobs/animals (e.g. sheep, pig, cow, zombie).
    - "craft": Craft an item (e.g. oak_planks, sticks, wooden_pickaxe). Set count if requested.
    - "sleep": Find and sleep in a nearby bed.
+   - "wake": Stand up / rise from bed.
    - "toss_item": Drop items. ALWAYS specify count if dropping a portion (e.g. target="oak_planks", count=5).
    - "equip": Equip tool, weapon, or armor in main hand or body.
    - "eat": Eat food from inventory.
    - "follow": Walk towards the player.
    - "stop": Cancel current pathing/movement.
    - "chat_only": When only talking without physical actions.
-6. Speak in natural, friendly Polish in sayInChat.
-7. If the sender is "System", it is an internal action report. Keep 'sayInChat' empty unless you need to communicate a failure or status directly to the player.
-8. For simple questions or conversations, use action="chat_only".`;
+7. Speak in natural, friendly Polish in sayInChat.
+8. If the sender is "System", it is an internal action report. Keep 'sayInChat' empty unless you need to communicate a failure or status directly to the player.
+9. For simple questions or conversations, use action="chat_only".`;
 
   const contents = chatHistory.map(entry => ({
     role: entry.role === 'assistant' ? 'model' : 'user',
