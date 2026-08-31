@@ -3,10 +3,14 @@ const { GoogleGenAI } = require('@google/genai');
 const tools = [
   {
     name: "interactWithWorld",
-    description: "Execute a sequence of physical actions in the game world and speak in chat.",
+    description: "Execute a sequence of physical actions in the game world, record internal reasoning, and speak in chat.",
     parameters: {
       type: "OBJECT",
       properties: {
+        thought: {
+          type: "STRING",
+          description: "Alice's internal reasoning, spatial assessment, and decision process. Strictly kept in logs, NEVER sent directly to in-game chat."
+        },
         actions: {
           type: "ARRAY",
           description: "List of actions to execute sequentially in a single turn.",
@@ -48,7 +52,7 @@ const tools = [
           description: "Alice's chat message in natural Polish spoken while initiating the action sequence."
         }
       },
-      required: ["actions"]
+      required: ["thought", "actions"]
     }
   }
 ];
@@ -77,8 +81,10 @@ CURRENT WORLD CONTEXT:
 
 EXECUTION RULES:
 1. Always call the interactWithWorld tool to respond or take actions.
-2. If the user asks for multi-step tasks (e.g. "pick up wood, craft planks, and give me 5"), build a logical action sequence in the actions array.
-3. Available Actions:
+2. Store your reasoning, plan, and internal state checks inside the 'thought' property.
+3. If missing ingredients or tools for crafting, DO NOT randomly mine player-built blocks or structures. Simply inform the player in 'sayInChat' about the missing items.
+4. If the user asks for multi-step tasks (e.g. "pick up wood, craft planks, and give me 5"), build a logical action sequence in the actions array.
+5. Available Actions:
    - "mine": Target block name (e.g. oak_log, coal_ore). Set count if requested.
    - "place": Target block item name from inventory to place on ground.
    - "pickup": Walk to and pick up dropped items on the ground.
@@ -91,9 +97,9 @@ EXECUTION RULES:
    - "follow": Walk towards the player.
    - "stop": Cancel current pathing/movement.
    - "chat_only": When only talking without physical actions.
-4. Speak in natural, friendly Polish in sayInChat.
-5. If the sender is "System", it is an internal action report – reply naturally in Polish informing the user of what happened.
-6. For simple questions or conversations, use action="chat_only".`;
+6. Speak in natural, friendly Polish in sayInChat.
+7. If the sender is "System", it is an internal action report. Keep 'sayInChat' empty unless you need to communicate a failure or status directly to the player.
+8. For simple questions or conversations, use action="chat_only".`;
 
   const contents = chatHistory.map(entry => ({
     role: entry.role === 'assistant' ? 'model' : 'user',
